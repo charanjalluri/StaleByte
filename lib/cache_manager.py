@@ -59,6 +59,14 @@ def save_cache(
         "source_version": source_version,
     }
 
+    # Clean up any stale path-keyed artifacts from previous runs
+    for pattern in ("artifact_*.json", "metadata_*.json"):
+        for p in CACHE_DIR.glob(pattern):
+            try:
+                p.unlink()
+            except OSError:
+                pass
+
     ARTIFACT_PATH.write_text(
         json.dumps(artifact, indent=2), encoding="utf-8"
     )
@@ -125,9 +133,13 @@ def invalidate_cache() -> None:
 
     Safe to call even when no cache is present.
     """
-    for path in (ARTIFACT_PATH, METADATA_PATH):
-        if path.exists():
-            path.unlink()
+    for pattern in ("artifact*.json", "metadata*.json"):
+        for path in CACHE_DIR.glob(pattern):
+            if path.exists():
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
 
 
 # ---------------------------------------------------------------------------

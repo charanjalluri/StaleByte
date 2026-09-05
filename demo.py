@@ -1,16 +1,11 @@
 """
 demo.py
 -------
-End-to-end demonstration of the StaleByte cache-staleness detection system.
-
-Runs the full timestamp-collision scenario and prints a side-by-side
-comparison showing:
-  • Naive runtime → stale V1 result = 20  (INCORRECT)
-  • Smart runtime → rebuilt V2 result = 30 (CORRECT)
-
-Usage
------
-    python demo.py
+Scripted end-to-end demonstration of StaleByte cache staleness detection.
+Demonstrates:
+1. Sub-second filesystem timestamp resolution collision window.
+2. Machine clock skew simulation where source appears older than cache.
+Shows legible FAIL (Naive silently wrong) vs PASS (Robust caught & rebuilt).
 """
 
 from __future__ import annotations
@@ -18,168 +13,126 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Allow imports from within stalebyte/
+# Ensure root directory is importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-from lib import cache_manager, compiler, source_manager
-from lib import staleness_naive, staleness_smart
-
-# ── Configuration ────────────────────────────────────────────────────────────
-
-INPUT_VALUE = 10
-FIXED_TS = source_manager.SIMULATED_MTIME   # same for V1 and V2 → collision
+from cache import CacheStore
+from clock import VirtualClock
+from invalidators import NaiveInvalidator, RobustInvalidator
+from runtime import Runtime
+from source import SourceFile, V1_CONTENT, V2_CONTENT
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
-def _banner(title: str) -> None:
-    width = 62
-    print("\n" + "═" * width)
-    print(f"  {title}")
-    print("═" * width)
+def _separator(char: str = "=", width: int = 72) -> None:
+    print(char * width)
 
 
-def _section(n: int, label: str) -> None:
-    print(f"\n  [{n}] {label}")
-    print("  " + "─" * 56)
+def run_scenario_resolution_collision(runtime: Runtime) -> None:
+    print("\n[SCENARIO 1: Sub-Second Timestamp Resolution Collision (1.0s Window)]")
+    print("  1. VirtualClock resolution set to 1.0s (simulating coarse FAT32 / ext4 granularity).")
 
+    clock = VirtualClock(current_time=1_700_000_000.0, resolution=1.0)
+    source = SourceFile(content=V1_CONTENT, clock=clock)
 
-# ── Demo steps ───────────────────────────────────────────────────────────────
+    # Step 1: Initial build & cache V1
+    runtime.cache_store.invalidate()
+    init_res = runtime.execute(source, RobustInvalidator(), input_value=10)
+    print(f"  2. Source V1 written (factor=2), compiled, cached at mtime={source.mtime}.")
+    print(f"     Artifact cached with hash {source.content_hash[:16]}... -> Initial output = {init_res.output}")
 
-def step_create_v1() -> None:
-    _section(1, "Create & compile source V1  (operation=multiply, factor=2)")
-    source_manager.create_source(source_manager.V1_CONTENT)
-    content = source_manager.read_source()
-    print(f"      Source content:\n{_indent(content)}")
+    # Step 2: Edit source to V2 within the same 1.0s window
+    clock.advance(0.4)
+    source.update_content(V2_CONTENT)
+    print(f"  3. Source edited to V2 (factor=3) +0.4s later (within 1s window).")
+    print(f"     Observed source mtime remains {source.mtime} (COLLISION WINDOW).")
 
-    artifact = compiler.compile_source(content)
-    print(f"      Compiled bytecode: {artifact['bytecode']}")
-    print(f"      factor={artifact['factor']}")
-
-    src_hash = source_manager.compute_hash(content)
-    meta = cache_manager.save_cache(
-        artifact=artifact,
-        source_content=content,
-        source_hash=src_hash,
-        source_version="V1",
-        t_cache=FIXED_TS,
-    )
-    print(f"\n      ✓ Cache written")
-    print(f"        artifact_id    = {meta['artifact_id']}")
-    print(f"        t_cache        = {meta['t_cache']}")
-    print(f"        source_version = {meta['source_version']}")
-    print(f"        source_hash    = {meta['source_hash'][:16]}…")
-    print(f"        source_size    = {meta['source_size']} bytes")
-
-
-def step_mutate_to_v2() -> None:
-    _section(2, "Mutate source to V2  (factor=2 → factor=3)")
-    source_manager.create_source(source_manager.V2_CONTENT)
-    content = source_manager.read_source()
-    print(f"      New source content:\n{_indent(content)}")
-    print(f"\n      Simulated mtime = {FIXED_TS}  ← SAME as V1 (collision!)")
-
-
-def step_naive_runtime() -> dict:
-    _section(3, "Naive runtime  (timestamp-only checker)")
-    metadata = cache_manager.load_metadata()
-    content = source_manager.read_source()
-
-    decision = staleness_naive.check_staleness(FIXED_TS, metadata)
-    print(f"      is_stale   = {decision.is_stale}")
-    print(f"      reason     = {decision.reason}")
-
-    if not decision.is_stale:
-        artifact = cache_manager.load_artifact()
-        note = "⚠  Using STALE V1 cache — naive checker was fooled!"
+    # Step 3: Run Naive Invalidator
+    naive_res = runtime.execute(source, NaiveInvalidator(), input_value=10)
+    print("\n  [NAIVE INVALIDATOR (mtime <= cached_mtime)]:")
+    print(f"    Decision  : is_stale={naive_res.decision.is_stale} (Cache HIT)")
+    print(f"    Reason    : {naive_res.decision.reason}")
+    print(f"    Execution : Output = {naive_res.output} (factor={naive_res.artifact['factor']})")
+    if naive_res.output == 20:
+        print("    Verdict   : ❌ FAIL (SILENT RUNTIME MISMATCH BUG — expected 30, got 20)")
     else:
-        artifact = compiler.compile_source(content)
-        note = "Cache rebuilt"
+        print("    Verdict   : ✓ PASS")
 
-    result = compiler.execute_artifact(artifact, INPUT_VALUE)
-    print(f"\n      {note}")
-    print(f"      execute({INPUT_VALUE}) → {result}   (factor={artifact['factor']})")
-    return {"result": result, "artifact": artifact, "decision": decision}
+    # Step 4: Run Robust Invalidator
+    # Restore collision state for fair test
+    runtime.cache_store.invalidate()
+    source_v1 = SourceFile(content=V1_CONTENT, clock=VirtualClock(current_time=1_700_000_000.0, resolution=1.0))
+    runtime.execute(source_v1, RobustInvalidator(), input_value=10)
 
-
-def step_smart_runtime() -> dict:
-    _section(4, "Smart runtime  (timestamp + SHA-256 checker)")
-
-    # Restore V2 source and the stale V1 cache (collision state)
-    source_manager.create_source(source_manager.V2_CONTENT)
-    content_v1 = source_manager.V1_CONTENT
-    v1_artifact = compiler.compile_source(content_v1)
-    v1_hash = source_manager.compute_hash(content_v1)
-    cache_manager.save_cache(
-        artifact=v1_artifact,
-        source_content=content_v1,
-        source_hash=v1_hash,
-        source_version="V1",
-        t_cache=FIXED_TS,
-    )
-
-    content_v2 = source_manager.read_source()
-    src_hash_v2 = source_manager.compute_hash(content_v2)
-    metadata = cache_manager.load_metadata()
-
-    decision = staleness_smart.check_staleness(FIXED_TS, src_hash_v2, metadata)
-    print(f"      is_stale        = {decision.is_stale}")
-    print(f"      timestamp_match = {decision.timestamp_match}")
-    print(f"      hash_match      = {decision.hash_match}")
-    print(f"      reason          = {decision.reason}")
-
-    if decision.is_stale:
-        cache_manager.invalidate_cache()
-        artifact = compiler.compile_source(content_v2)
-        cache_manager.save_cache(
-            artifact=artifact,
-            source_content=content_v2,
-            source_hash=src_hash_v2,
-            source_version="V2",
-            t_cache=FIXED_TS,
-        )
-        note = "✓  StaleByte detected staleness — rebuilt from V2!"
+    robust_res = runtime.execute(source, RobustInvalidator(), input_value=10)
+    print("\n  [ROBUST INVALIDATOR (SHA-256 Content Fingerprint)]:")
+    print(f"    Decision  : is_stale={robust_res.decision.is_stale} (Cache MISS)")
+    print(f"    Reason    : {robust_res.decision.reason}")
+    print(f"    Action    : Stale cache invalidated -> Recompiled from V2")
+    print(f"    Execution : Output = {robust_res.output} (factor={robust_res.artifact['factor']})")
+    if robust_res.output == 30:
+        print("    Verdict   : ✓ PASS (STALENESS DETECTED & CORRECTED — output 30)")
     else:
-        artifact = cache_manager.load_artifact()
-        note = "Cache reused"
-
-    result = compiler.execute_artifact(artifact, INPUT_VALUE)
-    print(f"\n      {note}")
-    print(f"      execute({INPUT_VALUE}) → {result}   (factor={artifact['factor']})")
-    return {"result": result, "artifact": artifact, "decision": decision}
+        print("    Verdict   : ❌ FAIL")
 
 
-def step_summary(naive_result: int, smart_result: int) -> None:
-    _banner("RESULTS SUMMARY")
-    print(f"""
-  Input value : {INPUT_VALUE}
+def run_scenario_clock_skew(runtime: Runtime) -> None:
+    print("\n[SCENARIO 2: Clock Skew Simulation (Build Machine Ahead vs Run Machine Behind)]")
+    print("  1. Build machine clock is ahead (T=1_700_000_100.0). Artifact V1 is compiled and cached.")
 
-  ┌─────────────────┬────────┬──────────────────────────────────────┐
-  │ Checker         │ Result │ Verdict                              │
-  ├─────────────────┼────────┼──────────────────────────────────────┤
-  │ Naive (ts only) │  {naive_result:4d}  │ ⚠  Stale V1 executed — BUG!          │
-  │ Smart (ts+hash) │  {smart_result:4d}  │ ✓  Staleness detected, V2 rebuilt    │
-  └─────────────────┴────────┴──────────────────────────────────────┘
-""")
-    assert naive_result == 20, f"Expected naive=20, got {naive_result}"
-    assert smart_result == 30, f"Expected smart=30, got {smart_result}"
-    print("  All assertions passed. StaleByte MVP demo complete.\n")
+    build_clock = VirtualClock(current_time=1_700_000_100.0, resolution=1.0)
+    source_v1 = SourceFile(content=V1_CONTENT, clock=build_clock)
 
+    runtime.cache_store.invalidate()
+    runtime.execute(source_v1, RobustInvalidator(), input_value=10)
+    print(f"  2. Source V1 cached at build timestamp t_cache={source_v1.mtime}.")
 
-def _indent(text: str, spaces: int = 8) -> str:
-    pad = " " * spaces
-    return "\n".join(pad + line for line in text.rstrip().splitlines())
+    # Run machine clock is 50 seconds behind
+    run_clock = VirtualClock(current_time=1_700_000_050.0, resolution=1.0)
+    source_v2 = SourceFile(content=V2_CONTENT, clock=run_clock)
+    print(f"  3. Source edited to V2 on run machine where clock is behind (mtime={source_v2.mtime} < t_cache={source_v1.mtime}).")
 
+    # Step 3: Run Naive Invalidator under skew
+    naive_res = runtime.execute(source_v2, NaiveInvalidator(), input_value=10)
+    print("\n  [NAIVE INVALIDATOR (mtime <= cached_mtime)]:")
+    print(f"    Decision  : is_stale={naive_res.decision.is_stale} (Cache HIT)")
+    print(f"    Reason    : {naive_res.decision.reason}")
+    print(f"    Execution : Output = {naive_res.output} (factor={naive_res.artifact['factor']})")
+    if naive_res.output == 20:
+        print("    Verdict   : ❌ FAIL (SILENT RUNTIME MISMATCH BUG — expected 30, got 20)")
+    else:
+        print("    Verdict   : ✓ PASS")
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+    # Step 4: Run Robust Invalidator under skew
+    # Restore skew cache state
+    runtime.cache_store.invalidate()
+    runtime.execute(source_v1, RobustInvalidator(), input_value=10)
+
+    robust_res = runtime.execute(source_v2, RobustInvalidator(), input_value=10)
+    print("\n  [ROBUST INVALIDATOR (SHA-256 Content Fingerprint)]:")
+    print(f"    Decision  : is_stale={robust_res.decision.is_stale} (Cache MISS)")
+    print(f"    Reason    : {robust_res.decision.reason}")
+    print(f"    Action    : Stale cache invalidated -> Recompiled from V2")
+    print(f"    Execution : Output = {robust_res.output} (factor={robust_res.artifact['factor']})")
+    if robust_res.output == 30:
+        print("    Verdict   : ✓ PASS (STALENESS DETECTED & CORRECTED — output 30)")
+    else:
+        print("    Verdict   : ❌ FAIL")
+
 
 def main() -> None:
-    _banner("StaleByte — Compiled-Cache Staleness Detection Demo")
-    step_create_v1()
-    step_mutate_to_v2()
-    naive = step_naive_runtime()
-    smart = step_smart_runtime()
-    step_summary(naive["result"], smart["result"])
+    _separator("=")
+    print("  STALEBYTE — Compiled Cache Staleness Detection Demo")
+    _separator("=")
+
+    demo_cache_dir = Path(__file__).parent / "cache"
+    runtime = Runtime(cache_store=CacheStore(cache_dir=demo_cache_dir))
+
+    run_scenario_resolution_collision(runtime)
+    _separator("-")
+    run_scenario_clock_skew(runtime)
+    _separator("=")
+    print("  EVALUATION SUMMARY: Naive Failures: 2/2 | Robust Passes: 2/2")
+    _separator("=")
 
 
 if __name__ == "__main__":

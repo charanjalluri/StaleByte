@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from lib import cache_manager, compiler, source_manager
-from runtime import runtime_naive, runtime_smart
+from runtime import run_naive, run_smart
 
 FIXED_TS = source_manager.SIMULATED_MTIME
 
@@ -72,7 +72,7 @@ def test_naive_runtime_returns_stale_v1_result(collision_state):
     In the collision scenario the naive runtime must execute the cached V1
     artifact (factor=2) and return 10 * 2 = 20, not the V2 result of 30.
     """
-    out = runtime_naive.run(
+    out = run_naive(
         10,
         source_path=collision_state,
         get_mtime=source_manager.simulated_mtime,
@@ -91,7 +91,7 @@ def test_smart_runtime_detects_staleness_and_returns_v2_result(collision_state):
     In the collision scenario the smart runtime must detect the hash mismatch,
     invalidate the V1 cache, rebuild from V2 (factor=3), and return 10 * 3 = 30.
     """
-    out = runtime_smart.run(
+    out = run_smart(
         10,
         source_path=collision_state,
         get_mtime=source_manager.simulated_mtime,
@@ -104,7 +104,7 @@ def test_smart_runtime_detects_staleness_and_returns_v2_result(collision_state):
 
 def test_smart_runtime_decision_explains_collision(collision_state):
     """The SmartDecision returned must confirm timestamp_match=True, hash_match=False."""
-    out = runtime_smart.run(
+    out = run_smart(
         10,
         source_path=collision_state,
         get_mtime=source_manager.simulated_mtime,
@@ -128,7 +128,7 @@ def test_smart_runtime_no_rebuild_when_source_unchanged(tmp_cache, tmp_path):
     src_file.write_text(source_manager.V1_CONTENT, encoding="utf-8")
 
     # First call — no cache exists, must build fresh
-    first = runtime_smart.run(
+    first = run_smart(
         10,
         source_path=src_file,
         get_mtime=source_manager.simulated_mtime,
@@ -138,7 +138,7 @@ def test_smart_runtime_no_rebuild_when_source_unchanged(tmp_cache, tmp_path):
     assert first["cache_used"] is False
 
     # Second call — source unchanged, must reuse cache
-    second = runtime_smart.run(
+    second = run_smart(
         10,
         source_path=src_file,
         get_mtime=source_manager.simulated_mtime,

@@ -2,106 +2,143 @@
 
 ## 1. Executive Summary
 
-StaleByte is a deterministic prototype demonstrating **compiled-cache staleness caused by timestamp validation failure** and its resolution via **SHA-256 cryptographic content fingerprinting**.
+StaleByte is a deterministic verification engine demonstrating **compiled-cache staleness caused by timestamp validation failure** and its resolution via **SHA-256 cryptographic content fingerprinting**.
 
-Build systems traditionally rely on file modification timestamps (`mtime`) to skip unnecessary recompilation. However, when edits occur within the filesystem timestamp resolution window (or in environments with clock skew), two distinct source versions can have identical observable timestamps. A timestamp-only validator incorrectly reuses a stale binary, resulting in silent runtime behavioral divergence.
+Build systems traditionally rely on file modification timestamps (`mtime`) to skip unnecessary recompilation. However, when edits occur within the filesystem timestamp resolution window (e.g. 1-second FAT32/ext3 granularity, sub-second rapid rebuilds, or distributed clock skew), two distinct source versions can have identical observable timestamps. A timestamp-only validator incorrectly reuses a stale binary, resulting in silent runtime behavioral divergence.
 
----
-
-## 2. Core Components
-
-```
-                     +---------------------------------+
-                     |         Source Manager          |
-                     |  (File I/O, SHA-256, mtime)     |
-                     +---------------------------------+
-                                      |
-                     +---------------------------------+
-                     |          Toy Compiler           |
-                     |   (Parse, Validate, Bytecode)   |
-                     +---------------------------------+
-                                      |
-                     +---------------------------------+
-                     |         Cache Manager           |
-                     |  (artifact.json, metadata.json) |
-                     +---------------------------------+
-                                      |
-               +----------------------+----------------------+
-               |                                             |
-               v                                             v
-+-------------------------------+             +-------------------------------+
-|     Naive Staleness Checker   |             |     Smart Staleness Checker   |
-|   (mtime > t_cache ONLY)      |             |   (mtime AND SHA-256 Hash)    |
-+-------------------------------+             +-------------------------------+
-               |                                             |
-               v                                             v
-+-------------------------------+             +-------------------------------+
-|         Naive Runtime         |             |         Smart Runtime         |
-|  (Executes stale V1 -> 20)    |             |  (Rebuilds & runs V2 -> 30)   |
-+-------------------------------+             +-------------------------------+
-```
-
-### 2.1 Source Manager (`lib/source_manager.py`)
-- Reads and writes source programs in a controlled key-value format.
-- Computes SHA-256 digests of source content (`compute_hash`).
-- Provides `simulated_mtime()` returning a constant timestamp (`1_700_000_000.0`) to model deterministic timestamp collisions across edits.
-
-### 2.2 Toy Compiler & Interpreter (`lib/compiler.py`)
-- **Parser**: Parses strict `key=value` definitions (`operation=multiply`, `factor=<int>`).
-- **Validator**: Enforces allowed operations and positive integer factor bounds.
-- **Bytecode Generator**: Emits a deterministic instruction list:
-  ```json
-  ["LOAD_INPUT", "PUSH 2", "MUL", "RETURN"]
-  ```
-- **Interpreter**: Sandboxed stack-based virtual machine (`execute_artifact`). Contains no `eval()` or `exec()`.
-
-### 2.3 Cache Manager (`lib/cache_manager.py`)
-- Persists two synchronized files:
-  - `artifact.json`: The compiled bytecode and operation parameters.
-  - `metadata.json`: Structural cache envelope containing `artifact_id`, `t_cache`, `source_hash`, `source_size`, and `source_version`.
-- Provides transactional invalidation (`invalidate_cache`) and atomic verification.
-
-### 2.4 Staleness Checkers
-- **Naive Checker (`lib/staleness_naive.py`)**:
-  - Condition: `is_stale = source_mtime > t_cache`
-  - Flaw: When `source_mtime == t_cache`, it declares the cache valid even if content changed.
-- **Smart Checker (`lib/staleness_smart.py`)**:
-  - Condition: `is_stale = (not hash_match) or (source_mtime > t_cache)`
-  - Resilience: Even under timestamp equality (`source_mtime == t_cache`) or clock skew (`source_mtime < t_cache`), hash divergence flags staleness.
-
-### 2.5 Execution Runtimes
-- **Naive Runtime (`runtime/runtime_naive.py`)**: Reuses the cached artifact when naive checker approves; fails silently in collision scenarios by running stale V1 code (yielding `20` on input `10`).
-- **Smart Runtime (`runtime/runtime_smart.py`)**: Rebuilds when smart checker detects hash mismatch, saves new metadata, and runs rebuilt V2 code (yielding `30` on input `10`).
+StaleByte implements a dual-invalidation architecture to reproduce this critical vulnerability deterministically, contrast naive vs. robust strategies side by side, and provide verifiable cryptographic certainty.
 
 ---
 
-## 3. Data Flow & Collision Lifecycle
+## 2. Complete System Architecture Diagram
 
-```
-1. Initial Build (V1)
-   Source: factor=2, mtime=T
-   -> Compile -> Artifact V1 (factor=2)
-   -> Cache Metadata: t_cache=T, source_hash=HASH_V1
+```mermaid
+flowchart TD
+    %% Styling Classes
+    classDef clientStyle fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a;
+    classDef apiStyle fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#14532d;
+    classDef svcStyle fill:#fdf4ff,stroke:#a855f7,stroke-width:2px,color:#581c87;
+    classDef runtimeStyle fill:#f8fafc,stroke:#475569,stroke-width:2px,color:#0f172a;
+    classDef naiveStyle fill:#fef2f2,stroke:#ef4444,stroke-width:2px,color:#991b1b;
+    classDef robustStyle fill:#ecfdf5,stroke:#10b981,stroke-width:2px,color:#065f46;
+    classDef cacheStyle fill:#fffbeb,stroke:#f59e0b,stroke-width:2px,color:#78350f;
+    classDef vmStyle fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#1e293b;
 
-2. Source Mutation (V2)
-   Source: factor=3, mtime=T  (Within resolution collision window)
-   Current Hash: HASH_V2
+    subgraph CLIENTS [" 1. Presentation & Client Layer "]
+        WEB["🖥️ Web Dashboard (HTML5 / CSS3 / ES6)"]:::clientStyle
+        CLI["💻 CLI & Fuzz Tools (cli.py / fuzz.py)"]:::clientStyle
+        TEST["🧪 Test Suite (pytest · 115 tests)"]:::clientStyle
+    end
 
-3. Evaluation
-   +-------------------+-----------------------------+-----------------------------+
-   | Component         | Naive Strategy              | Smart Strategy              |
-   +-------------------+-----------------------------+-----------------------------+
-   | Timestamp Check   | T <= T -> Valid             | T <= T -> Valid             |
-   | Content Hash Check| Skipped                     | HASH_V2 != HASH_V1 -> STALE |
-   | Action            | Load stale V1 artifact      | Invalidate, Recompile V2    |
-   | Execution (in=10) | 10 * 2 = 20 (FAIL)          | 10 * 3 = 30 (PASS)          |
-   +-------------------+-----------------------------+-----------------------------+
+    subgraph API [" 2. API Server & Gateway (web/app.py) "]
+        ROUTER["⚡ ThreadingHTTPServer Request Handler"]:::apiStyle
+        ENDPOINTS["REST Routes: /upload-check · /run/collision · /run/normal · /check · /build · /chat"]:::apiStyle
+    end
+
+    subgraph SERVICES [" 3. Orchestration & Intelligence (services/) "]
+        SIM["⚙️ Simulation Service (simulation_service.py)<br/>Scenario coordinator & live file checker"]:::svcStyle
+        AI["🤖 Assistant Service (ai_service.py)<br/>Meta Muse Spark 1.3 · Auto-summaries & Chat"]:::svcStyle
+    end
+
+    subgraph CORE [" 4. Deterministic Core Engine (Off-Limits) "]
+        SRC["📄 SourceFile (source.py)<br/>Real os.stat() mtime & SHA-256 hash"]:::vmStyle
+        RUNTIME["🔄 Unified Runtime (runtime/engine.py)<br/>check_staleness() & execute()"]:::runtimeStyle
+
+        subgraph STRATEGIES [" Staleness Strategies (invalidators.py) "]
+            NAIVE["❌ Naive Invalidator<br/>mtime > t_cache<br/>⚠️ Fails on timestamp collision"]:::naiveStyle
+            ROBUST["🛡️ Robust Invalidator<br/>hash != cached_hash OR mtime > t_cache<br/>✅ Cryptographic certainty"]:::robustStyle
+        end
+
+        VM["⚙️ Stack Bytecode VM (lib/compiler.py)<br/>LOAD_INPUT · PUSH · MUL · RETURN (zero eval/exec)"]:::vmStyle
+    end
+
+    subgraph STORAGE [" 5. Thread-Safe Storage (cache.py) "]
+        CACHE["💾 Atomic CacheStore<br/>threading.Lock · metadata.json & artifact.json"]:::cacheStyle
+    end
+
+    %% Connections
+    WEB --> ROUTER
+    CLI --> SIM
+    TEST --> ROUTER
+    TEST --> SIM
+
+    ROUTER --> ENDPOINTS
+    ENDPOINTS --> SIM
+    ENDPOINTS --> AI
+
+    SIM --> RUNTIME
+    SIM --> SRC
+    SIM -.->|Passes Finished Results| AI
+
+    RUNTIME --> NAIVE
+    RUNTIME --> ROBUST
+    RUNTIME --> VM
+    RUNTIME --> CACHE
+
+    SRC -.->|Supplies Current Metadata| RUNTIME
+    CACHE -.->|Supplies Cached Envelope| RUNTIME
 ```
 
 ---
 
-## 4. Security & Isolation Model
+## 3. Naive vs. Robust Decision Flow
 
-- **Safe Execution**: All operations are evaluated by a strict stack interpreter supporting only `LOAD_INPUT`, `PUSH`, `MUL`, and `RETURN`.
-- **Zero Dynamic Execution**: No `eval`, `exec`, `pickle`, or `subprocess` calls.
-- **Isolated File I/O**: Strict `pathlib.Path` resolution prevents path traversal.
+```mermaid
+flowchart TD
+    classDef danger fill:#fef2f2,stroke:#ef4444,stroke-width:2px,color:#991b1b;
+    classDef success fill:#ecfdf5,stroke:#10b981,stroke-width:2px,color:#065f46;
+    classDef neutral fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#0f172a;
+    classDef decision fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a;
+
+    START["📝 Source File Edited (V1 -> V2)<br/>Occurs within same 1-second timestamp window"]:::neutral
+
+    START --> COND{"Filesystem Check<br/>mtime = T_cache?"}:::decision
+
+    %% Naive Branch
+    COND -->|Yes: Timestamp Unchanged| NAIVE_PATH["❌ Naive Strategy (Clock-Only)"]:::danger
+    NAIVE_PATH --> N_DEC["mtime <= T_cache: Declares Cache VALID"]:::danger
+    N_DEC --> N_EXEC["Reuses Outdated V1 Bytecode (factor=2)"]:::danger
+    N_EXEC --> N_OUT["❌ Output = 20<br/>CRITICAL BUG: Silent Stale Execution!"]:::danger
+
+    %% Robust Branch
+    COND -->|Compare SHA-256 Hashes| ROBUST_PATH["🛡️ Robust Strategy (StaleByte)"]:::success
+    ROBUST_PATH --> R_DEC["Hash(V2) != Hash(V1): Declares Cache STALE"]:::success
+    R_DEC --> R_REBUILD["Invalidates Cache & Recompiles V2 (factor=3)"]:::success
+    R_REBUILD --> R_OUT["✅ Output = 30<br/>VERIFIED PASS: Correct Execution!"]:::success
+```
+
+---
+
+## 4. Component Deep Dive
+
+### 4.1 Presentation Layer (`web/static/`)
+- **Dashboard Interface**: Single-page application built with clean semantic HTML5, custom design system CSS (responsive, glassmorphism accents, accessible contrast ratios), and vanilla ES6 JavaScript.
+- **Simulation Suite**: One-click triggers for:
+  - Timestamp Collision scenario (identical filesystem mtime, diverging content)
+  - Normal Flow scenario (unchanged source, legitimate cache hit)
+  - Distributed Clock Skew scenario (backward clock skew simulating unsynchronized cluster nodes)
+- **Real File Upload Dropzone**: Drag-and-drop file inspection executing real `os.stat` filesystem calls and live SHA-256 generation.
+- **Assistant Widget**: Non-intrusive floating drawer offering natural language explanations without technical jargon.
+
+### 4.2 Application & Service Layer (`web/app.py`, `services/`)
+- **API Server (`web/app.py`)**: High-performance HTTP server using Python's standard library `ThreadingHTTPServer`. Enforces strict request body validation (1MB upload limit, RFC-compliant Content-Length on error responses).
+- **Simulation Service (`services/simulation_service.py`)**: Pure orchestration layer isolating business logic from network handlers. Supplies structured diagnostic payloads with verdicts, timestamps, hashes, and decisions.
+- **AI Intelligence Service (`services/ai_service.py`)**:
+  - Encapsulated Meta Muse Spark 1.3 LLM client over standard OpenAI-compatible completions protocol.
+  - **Quota Isolation**: Independent `MUSE_SPARK_API_KEY` (interactive chat) and `SUMMARY_API_KEY` (automatic core output summaries).
+  - **Graceful Fault Tolerance**: Background summary failures or missing keys safely fall back to `null` with HTTP 200, guaranteeing deterministic core execution never halts.
+  - **Plain-Language Tone**: Strict system prompt constraints forbidding raw math operators (`<=`, raw bytecode) for business and non-technical clarity.
+
+### 4.3 Deterministic Core Layer (`invalidators.py`, `source.py`, `cache.py`, `runtime/`, `lib/`)
+- **Source Model (`source.py`)**: Encapsulates disk-backed and in-memory source files. Calculates SHA-256 digests deterministically. Supports `VirtualClock` for discrete time resolution quantization.
+- **Cache Store (`cache.py`)**: Thread-safe cache persistence using `threading.Lock` and atomic file write replacements (`_atomic_write_text` via temp files).
+- **Pluggable Invalidators (`invalidators.py`)**: Polymorphic validator interface implementing `check(source, cache_entry) -> InvalidationDecision`.
+- **Compiler & Bytecode VM (`lib/compiler.py`)**: Safe stack machine supporting arithmetic transformations without dynamic interpreters (`eval`, `exec`).
+
+---
+
+## 5. Security & Reliability Model
+
+- **Safe Execution**: Stack VM operations (`LOAD_INPUT`, `PUSH`, `MUL`, `RETURN`) prevent code injection.
+- **Atomic Concurrency**: Thread-safe write locks prevent corrupted cache files during concurrent build requests.
+- **Air-Gapped Core Determinism**: All staleness decisions (`is_stale`, `rebuilt`, `output`) are 100% deterministic and computed locally before optional AI presentation layers are invoked.

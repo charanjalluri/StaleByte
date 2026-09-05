@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="StaleByte — Deterministic proof of compiled cache staleness and SHA-256 cryptographic invalidation.">
+  <title>StaleByte — Compiled Cache Staleness Verification</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="site-wrapper">
+    <!-- Header -->
+    <header class="site-header">
+      <div class="brand">
+        <div class="brand-badge-row">
+          <span class="brand-title">StaleByte</span>
+          <span class="brand-version-pill">v1.3 · Verification Engine</span>
+        </div>
+        <span class="brand-tag">Compiled Cache Staleness Verification Engine</span>
+      </div>
+      <nav class="site-nav" aria-label="Main Navigation">
+        <a href="#comparison" class="nav-link">Comparison</a>
+        <a href="#provenance" class="nav-link">Provenance</a>
+        <a href="#upload-check" class="nav-link">Upload & Check</a>
+        <button id="btn-header-clean" class="nav-action-btn" type="button" title="Clean cache directory and reset simulation">
+          <span class="btn-spinner" aria-hidden="true"></span>
+          <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          <span class="btn-label">Clean Cache</span>
+        </button>
+        <a href="https://github.com/charanjalluri/StaleByte" class="nav-link nav-github" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+    </header>
+
+    <main class="site-main">
+      <!-- Hero Section -->
+      <section class="hero-section">
+        <h1 class="hero-heading">Compiled cache staleness causes silent runtime failures.</h1>
+        <p class="hero-summary">
+          When file modifications occur within a filesystem timestamp resolution window or across skewed clocks, standard build systems silently execute obsolete bytecode. StaleByte prevents silent divergence using SHA-256 cryptographic provenance.
+        </p>
+
+        <!-- Plain-Language Explainer Strip (Showcase requirement: clear 2-3 sentence concept for first-time visitors/judges) -->
+        <div class="explainer-strip" role="region" aria-label="Core Concept Overview">
+          <div class="explainer-card explainer-naive">
+            <div class="explainer-header">
+              <span class="explainer-status-tag fail">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                Naive (Timestamp-Only)
+              </span>
+            </div>
+            <p class="explainer-text">
+              Trusts file modification clocks. When edits happen within a 1-second filesystem window or across unsynchronized nodes, timestamps appear identical and <strong>old, obsolete bytecode runs silently without warning</strong>.
+            </p>
+          </div>
+
+          <div class="explainer-vs" aria-hidden="true">
+            <span>VS</span>
+          </div>
+
+          <div class="explainer-card explainer-robust">
+            <div class="explainer-header">
+              <span class="explainer-status-tag pass">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>
+                Robust (StaleByte Engine)
+              </span>
+            </div>
+            <p class="explainer-text">
+              Cryptographically fingerprints source code with <strong>SHA-256 alongside timestamps</strong>. Any content mutation is caught with 100% certainty, instantly invalidating stale artifacts and recompiling current code.
+            </p>
+          </div>
+        </div>
+
+        <!-- Primary Action Zone -->
+        <div class="action-zone">
+          <div class="primary-controls-row">
+            <button id="btn-collision" class="primary-action-btn" type="button">
+              <span class="btn-spinner" aria-hidden="true"></span>
+              <span class="btn-label">Run Timestamp Collision Simulation</span>
+            </button>
+            <button id="btn-clean-cache" class="clean-action-btn" type="button" title="Purge persistent cache files to ensure clean baseline">
+              <span class="btn-spinner" aria-hidden="true"></span>
+              <svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 6h18"></path>
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                <line x1="10" y1="11" x2="10" y2="17"></line>
+                <line x1="14" y1="11" x2="14" y2="17"></line>
+              </svg>
+              <span class="btn-label">Clean Cache</span>
+            </button>
+          </div>
+          <span class="action-meta" id="sys-status">Ready · Simulates coarse 1-second filesystem collision (FAT32/ext3)</span>
+        </div>
+
+        <!-- Optional Parameters Disclosure -->
+        <details class="parameters-disclosure">
+          <summary class="disclosure-summary">
+            <span>Advanced Simulation Scenarios & Custom Source Code</span>
+            <svg class="disclosure-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </summary>
+          <div class="parameters-panel">
+            <div class="input-grid">
+              <div class="input-field">
+                <label for="input-value">Input Value (X)</label>
+                <input type="number" id="input-value" value="10" min="1" max="1000" class="text-input">
+              </div>
+              <div class="input-field">
+                <label for="v1-source-input">Initial Source V1 (Cached)</label>
+                <textarea id="v1-source-input" rows="2" class="code-textarea">operation=multiply&#10;factor=2</textarea>
+              </div>
+              <div class="input-field">
+                <label for="v2-source-input">Mutated Source V2 (On Disk)</label>
+                <textarea id="v2-source-input" rows="2" class="code-textarea">operation=multiply&#10;factor=3</textarea>
+              </div>
+            </div>
+            <div class="secondary-actions">
+              <button id="btn-skew" class="secondary-btn" type="button">
+                <span class="btn-spinner" aria-hidden="true"></span>
+                <span>Simulate Clock Skew (Build Node Δt)</span>
+              </button>
+              <button id="btn-normal" class="secondary-btn" type="button">
+                <span class="btn-spinner" aria-hidden="true"></span>
+                <span>Run Unchanged Source (Valid Hit)</span>
+              </button>
+              <button id="btn-reset" class="secondary-btn" type="button">Reset Defaults</button>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <!-- Side-by-Side Comparison -->
+      <section id="comparison" class="comparison-section">
+        <div class="section-header-compact">
+          <div class="section-title-group">
+            <h2 class="section-title">Runtime Behavior Under Collision</h2>
+            <p class="section-subtitle">Live execution comparison of the exact same bytecode run under identical filesystem conditions.</p>
+          </div>
+          <span class="scenario-indicator" id="scenario-name">Scenario: Timestamp Collision</span>
+        </div>
+
+        <!-- Global In-Flight Loading Overlay Indicator -->
+        <div id="simulation-loading" class="simulation-loading-banner" hidden aria-live="polite">
+          <span class="spinner-dot"></span>
+          <span>Simulating filesystem clock resolution collision & running dual invalidators...</span>
+        </div>
+
+        <div class="comparison-layout" id="comparison-grid" aria-live="polite">
+          <!-- Naive Strategy Panel (High-Contrast Red/Amber Failure State) -->
+          <div class="strategy-panel naive-strategy" id="naive-panel">
+            <div class="verdict-banner-highlight fail" id="naive-verdict-banner">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+              <span>CRITICAL FAIL: SILENT BYTECODE DIVERGENCE</span>
+            </div>
+
+            <div class="panel-header">
+              <div class="strategy-badge-group">
+                <svg class="panel-state-icon text-fail" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="8" x2="12" y2="12"></line>
+                  <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+                <span class="strategy-type">Naive Invalidation</span>
+              </div>
+              <span class="status-indicator error" id="naive-badge">STALE REUSE (FAIL)</span>
+            </div>
+            
+            <h3 class="strategy-name">Timestamp-Only Strategy</h3>
+            
+            <div class="output-block error-block">
+              <span class="output-label">Runtime Output (Obsolete)</span>
+              <div class="output-number-row">
+                <span class="output-number error-color" id="naive-result">20</span>
+                <span class="output-verdict-pill fail">SILENT ERROR</span>
+              </div>
+              <span class="output-caption" id="naive-sub">Computed using obsolete factor=2 (Expected 30)</span>
+            </div>
+
+            <div class="proof-list">
+              <div class="proof-row">
+                <span class="proof-key">Staleness Check</span>
+                <div class="proof-val-group">
+                  <span class="proof-icon fail" id="naive-stale-icon">✕</span>
+                  <span class="proof-val text-fail" id="naive-stale">is_stale = false (FALSE HIT)</span>
+                </div>
+              </div>
+              <div class="proof-row">
+                <span class="proof-key">Cache Action</span>
+                <div class="proof-val-group">
+                  <span class="proof-icon fail" id="naive-cache-icon">✕</span>
+                  <span class="proof-val" id="naive-cache">Reused Stale Cache</span>
+                </div>
+              </div>
+              <div class="proof-row">
+                <div class="proof-row-header">
+                  <span class="proof-key">Diagnosis</span>
+                  <button id="btn-explain-naive" class="explain-action-btn" type="button" aria-expanded="false" aria-controls="naive-ai-box">
+                    <span class="explain-spinner" aria-hidden="true"></span>
+                    <svg class="explain-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                    <span>Explain this</span>
+                  </button>
+                </div>
+                <span class="proof-reason" id="naive-reason">Identical timestamps caused silent stale reuse of the old program.</span>
+                <div id="naive-ai-box" class="ai-explanation-box" hidden>
+                  <div class="ai-explanation-meta">
+                    <span class="ai-explanation-badge">Analysis Summary</span>
+                  </div>
+                  <p id="naive-ai-text" class="ai-explanation-text"></p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Smart Strategy Panel (Vibrant Emerald Green Verified State) -->
+          <div class="strategy-panel smart-strategy" id="smart-panel">
+            <div class="verdict-banner-highlight pass" id="smart-verdict-banner">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>
+              <span>VERIFIED PASS: CRYPTOGRAPHIC REBUILD TRIGGERED</span>
+            </div>
+
+            <div class="panel-header">
+              <div class="strategy-badge-group">
+                <svg class="panel-state-icon text-pass" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                  <polyline points="9 12 11 14 15 10"></polyline>
+                </svg>
+                <span class="strategy-type">StaleByte Strategy</span>
+              </div>
+              <span class="status-indicator correct" id="smart-badge">REBUILT V2 (PASS)</span>
+            </div>
+
+            <h3 class="strategy-name">Timestamp + SHA-256 Hash</h3>
+
+            <div class="output-block pass-block">
+              <span class="output-label">Runtime Output (Correct)</span>
+              <div class="output-number-row">
+                <span class="output-number primary-accent-color" id="smart-result">30</span>
+                <span class="output-verdict-pill pass">VERIFIED PASS</span>
+              </div>
+              <span class="output-caption" id="smart-sub">Computed using current factor=3 (Correct Build)</span>
+            </div>
+
+            <div class="proof-list">
+              <div class="proof-row">
+                <span class="proof-key">Staleness Check</span>
+                <div class="proof-val-group">
+                  <span class="proof-icon pass" id="smart-stale-icon">✓</span>
+                  <span class="proof-val text-pass" id="smart-stale">is_stale = true (Hash Mismatch)</span>
+                </div>
+              </div>
+              <div class="proof-row">
+                <span class="proof-key">Cache Action</span>
+                <div class="proof-val-group">
+                  <span class="proof-icon pass" id="smart-action-icon">✓</span>
+                  <span class="proof-val" id="smart-action">Invalidate & Rebuild</span>
+                </div>
+              </div>
+              <div class="proof-row">
+                <div class="proof-row-header">
+                  <span class="proof-key">Diagnosis</span>
+                  <button id="btn-explain-smart" class="explain-action-btn" type="button" aria-expanded="false" aria-controls="smart-ai-box">
+                    <span class="explain-spinner" aria-hidden="true"></span>
+                    <svg class="explain-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                    <span>Explain this</span>
+                  </button>
+                </div>
+                <span class="proof-reason" id="smart-reason">Timestamp collision intercepted: SHA-256 hash divergence triggered rebuild.</span>
+                <div id="smart-ai-box" class="ai-explanation-box" hidden>
+                  <div class="ai-explanation-meta">
+                    <span class="ai-explanation-badge">Analysis Summary</span>
+                  </div>
+                  <p id="smart-ai-text" class="ai-explanation-text"></p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Provenance Inspector -->
+      <section id="provenance" class="provenance-section">
+        <div class="section-header-compact">
+          <h2 class="section-title">Cryptographic Provenance</h2>
+          <span class="scenario-indicator">Deterministic SHA-256 Hashes</span>
+        </div>
+        <div class="provenance-grid">
+          <div class="provenance-cell">
+            <h3 class="cell-label">Source V1 (Cached)</h3>
+            <pre class="code-preview"><code id="v1-code">operation=multiply&#10;factor=2</code></pre>
+            <div class="digest-line">SHA-256: <span id="v1-hash" class="mono-hash">45e28b09...</span></div>
+          </div>
+
+          <div class="provenance-cell">
+            <h3 class="cell-label">Source V2 (Disk)</h3>
+            <pre class="code-preview"><code id="v2-code">operation=multiply&#10;factor=3</code></pre>
+            <div class="digest-line">SHA-256: <span id="v2-hash" class="mono-hash">512b918d...</span></div>
+          </div>
+
+          <div class="provenance-cell">
+            <h3 class="cell-label">Timestamp Boundary</h3>
+            <div class="timing-rows">
+              <div class="timing-item">
+                <span class="timing-label">Cached At (t_cache):</span>
+                <span id="t-cache" class="timing-val">1000.000s</span>
+              </div>
+              <div class="timing-item">
+                <span class="timing-label">Modified (mtime):</span>
+                <span id="t-mtime" class="timing-val">1000.000s</span>
+              </div>
+            </div>
+            <p class="timing-note">
+              Timestamps are identical (<code class="code-inline">Δt = 0</code>). Only cryptographic hashing detects that the source code changed.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Real File Upload & Live Verification -->
+      <section id="upload-check" class="upload-section">
+        <div class="section-header-compact">
+          <h2 class="section-title">Real File Staleness Verification</h2>
+          <span class="scenario-indicator">Live Filesystem · os.stat() & SHA-256</span>
+        </div>
+        <p class="section-description">
+          Upload your own source file to execute real filesystem staleness checks. Re-uploading an unchanged file reports a cache hit, while editing and re-uploading triggers cache invalidation.
+        </p>
+
+        <div class="upload-box-container">
+          <!-- Dropzone with clear empty state & dragover animations -->
+          <div id="upload-dropzone" class="upload-dropzone" aria-label="Upload source file drop zone">
+            <input type="file" id="source-file-input" accept=".src,.txt" class="file-input" aria-label="Select source file">
+            
+            <!-- Empty state presentation -->
+            <div class="dropzone-content" id="dropzone-empty-state">
+              <div class="dropzone-icon-ring">
+                <svg class="upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+              </div>
+              <span class="dropzone-prompt">Drag and drop your <code class="code-inline">.src</code> file here, or click to browse</span>
+              <span class="dropzone-hint">Format: <code class="code-inline">operation=multiply</code> and <code class="code-inline">factor=&lt;integer&gt;</code> (Max 1MB)</span>
+            </div>
+
+            <!-- Selected File Ready State -->
+            <div class="dropzone-selected-state" id="dropzone-selected-state" hidden>
+              <div class="file-pill">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="16" y1="13" x2="8" y2="13"></line>
+                  <line x1="16" y1="17" x2="8" y2="17"></line>
+                  <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
+                <div class="file-pill-details">
+                  <span id="selected-file-name" class="selected-file-label">program.src</span>
+                  <span id="selected-file-meta" class="selected-file-sub">42 bytes · Ready to check</span>
+                </div>
+                <button type="button" id="btn-clear-file" class="file-remove-btn" title="Remove file" aria-label="Remove selected file">&times;</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="upload-actions">
+            <button id="btn-upload-check" class="primary-action-btn" type="button" disabled>
+              <span class="btn-spinner" aria-hidden="true"></span>
+              <span class="btn-label">Check Uploaded File</span>
+            </button>
+            <button id="btn-load-sample" class="secondary-btn" type="button" title="Load sample DSL file for rapid testing without file picker">
+              <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+              </svg>
+              <span>Load sample.src</span>
+            </button>
+            <button id="btn-reset-upload-cache" class="secondary-btn" type="button" title="Clean cache before checking to test cold-cache behavior">
+              <span class="btn-spinner" aria-hidden="true"></span>
+              <span>Clean Cache First</span>
+            </button>
+          </div>
+
+          <!-- Specific, Friendly Error Container (Showcase requirement: plain-language explanation right next to upload area) -->
+          <div id="upload-error" class="upload-error-banner" hidden role="alert">
+            <div class="error-banner-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            </div>
+            <div class="error-banner-body">
+              <strong id="upload-error-title" class="error-banner-title">Upload Rejected</strong>
+              <p id="upload-error-detail" class="error-banner-message"></p>
+              <div class="error-banner-footer">
+                <span id="upload-error-hint" class="error-banner-hint">Valid example:<br><code>operation=multiply<br>factor=4</code></span>
+                <button type="button" id="btn-fix-sample" class="error-fix-btn">Use Valid Example</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real Check Results Display -->
+        <div id="upload-results" class="upload-results-panel" hidden>
+          <div class="upload-verdict-bar" id="upload-verdict-banner">
+            <span class="verdict-tag" id="upload-verdict-tag">PASS</span>
+            <span class="verdict-summary" id="upload-verdict-text">Cache check completed.</span>
+          </div>
+
+          <div class="provenance-grid upload-meta-grid">
+            <div class="provenance-cell">
+              <h3 class="cell-label">Uploaded Source File</h3>
+              <div class="meta-line">Filename: <strong id="upload-meta-name" class="mono-hash">-</strong></div>
+              <div class="meta-line">Filesystem Size: <span id="upload-meta-size" class="mono-hash">-</span></div>
+              <div class="meta-line">Real mtime: <span id="upload-meta-mtime" class="mono-hash">-</span></div>
+              <div class="digest-line">SHA-256: <span id="upload-meta-hash" class="mono-hash">-</span></div>
+            </div>
+            <div class="provenance-cell">
+              <h3 class="cell-label">Persistent Cache State</h3>
+              <div class="meta-line">Prior Status: <strong id="upload-cache-status" class="mono-hash">-</strong></div>
+              <div class="meta-line">Cached At: <span id="upload-cache-time" class="mono-hash">-</span></div>
+              <div class="digest-line">Cached Hash: <span id="upload-cache-hash" class="mono-hash">-</span></div>
+            </div>
+          </div>
+
+          <div class="comparison-layout">
+            <!-- Naive Invalidator Panel -->
+            <div class="strategy-panel naive-strategy">
+              <div class="panel-header">
+                <div class="strategy-badge-group">
+                  <svg class="panel-state-icon text-fail" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                  <span class="strategy-type">Naive Invalidation</span>
+                </div>
+                <span class="status-indicator" id="upload-naive-badge">CHECK</span>
+              </div>
+              <h3 class="strategy-name">Timestamp-Only Strategy</h3>
+              <div class="proof-list">
+                <div class="proof-row">
+                  <span class="proof-key">Decision</span>
+                  <strong class="proof-val" id="upload-naive-decision">-</strong>
+                </div>
+                <div class="proof-row">
+                  <span class="proof-key">Verdict</span>
+                  <span class="proof-val" id="upload-naive-verdict">-</span>
+                </div>
+                <div class="proof-row">
+                  <span class="proof-key">Diagnostic Reason</span>
+                  <span class="proof-reason" id="upload-naive-reason">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Robust Invalidator Panel -->
+            <div class="strategy-panel smart-strategy">
+              <div class="panel-header">
+                <div class="strategy-badge-group">
+                  <svg class="panel-state-icon text-pass" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>
+                  <span class="strategy-type">StaleByte Invalidation</span>
+                </div>
+                <span class="status-indicator correct" id="upload-robust-badge">CHECK</span>
+              </div>
+              <h3 class="strategy-name">Timestamp + SHA-256 Strategy</h3>
+              <div class="proof-list">
+                <div class="proof-row">
+                  <span class="proof-key">Decision</span>
+                  <strong class="proof-val" id="upload-robust-decision">-</strong>
+                </div>
+                <div class="proof-row">
+                  <span class="proof-key">Verdict</span>
+                  <span class="proof-val" id="upload-robust-verdict">-</span>
+                </div>
+                <div class="proof-row">
+                  <span class="proof-key">Diagnostic Reason</span>
+                  <span class="proof-reason" id="upload-robust-reason">-</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+      <div class="footer-content">
+        <span class="footer-title">StaleByte Verification Engine</span>
+        <span class="footer-meta">Problem #141 · Deterministic Compiled Cache Staleness Verification · Zero External Dependencies</span>
+      </div>
+    </footer>
+
+    <!-- Global Toast Notification Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Floating Assistant Widget -->
+    <aside id="chat-widget" class="chat-widget" aria-label="StaleByte Assistant">
+      <!-- Floating Trigger Button -->
+      <button id="chat-widget-toggle" class="chat-toggle-btn" type="button" aria-expanded="false" aria-controls="chat-panel" title="Open StaleByte Assistant">
+        <svg class="chat-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span class="chat-toggle-label">Ask a question</span>
+        <span class="chat-pulse-badge" id="chat-status-dot" title="Assistant Ready"></span>
+      </button>
+
+      <!-- Expandable Chat Panel -->
+      <section id="chat-panel" class="chat-panel" hidden aria-hidden="true">
+        <div class="chat-header">
+          <div class="chat-header-info">
+            <span class="chat-title">StaleByte Assistant</span>
+            <span class="chat-model-badge">Online</span>
+          </div>
+          <button id="chat-close-btn" class="chat-close-btn" type="button" aria-label="Close assistant">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div id="chat-messages" class="chat-messages" role="log" aria-live="polite">
+          <div class="chat-message assistant-message">
+            <p>Hello! I am your StaleByte assistant. Ask me anything about how cache staleness works, why silent bugs happen, or how to prevent them.</p>
+          </div>
+        </div>
+
+        <div id="chat-status" class="chat-status" hidden>
+          <div class="typing-dots">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="typing-indicator">Thinking...</span>
+        </div>
+
+        <form id="chat-form" class="chat-input-form">
+          <input type="text" id="chat-input" class="chat-input" placeholder="Ask a question..." autocomplete="off" required>
+          <button type="submit" id="chat-send-btn" class="chat-send-btn" aria-label="Send question">
+            <span class="send-spinner" aria-hidden="true"></span>
+            <svg class="send-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </form>
+      </section>
+    </aside>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

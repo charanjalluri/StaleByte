@@ -5,37 +5,55 @@ Tests proving that neither checker triggers a false rebuild when the source
 mtime appears older than the cache (clock-skew scenario).
 """
 
-import pytest
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lib import staleness_naive, staleness_smart
+from cache import CacheEntry
+from invalidators import NaiveInvalidator, RobustInvalidator
 from lib.source_manager import compute_hash, V1_CONTENT
+from source import SourceFile
 
 HASH_V1 = compute_hash(V1_CONTENT)
 T_CACHE = 1_700_000_100.0
-T_SKEWED = 1_700_000_000.0   # 100 seconds "in the past" due to skew
+T_SKEWED = 1_700_000_000.0  # 100 seconds "in the past" due to skew
+
+naive_checker = NaiveInvalidator()
+smart_checker = RobustInvalidator()
 
 
-def _naive_meta() -> dict:
-    return {"t_cache": T_CACHE}
+def _entry(h: str = HASH_V1) -> CacheEntry:
+    return CacheEntry(
+        source_path="src/program.src",
+        cached_mtime=T_CACHE,
+        cached_size=len(V1_CONTENT),
+        content_hash=h,
+        artifact={"factor": 2},
+    )
 
 
-def _smart_meta() -> dict:
-    return {"t_cache": T_CACHE, "source_hash": HASH_V1}
+def _source(mtime: float, h: str = HASH_V1, content: str = V1_CONTENT) -> SourceFile:
+    return SourceFile(
+        path="src/program.src",
+        content=content,
+        mtime=mtime,
+        size=len(content),
+        content_hash=h,
+    )
 
 
 def test_naive_no_false_invalidation_under_skew():
-    """Naive checker: older mtime → cache considered valid."""
-    decision = staleness_naive.check_staleness(T_SKEWED, _naive_meta())
+    """Naive checker: older mtime -> cache considered valid."""
+    decision = naive_checker.check(_source(T_SKEWED), _entry())
     assert not decision.is_stale
 
 
 def test_smart_no_false_invalidation_under_skew_same_hash():
-    """Smart checker: older mtime + same hash → cache is valid."""
-    decision = staleness_smart.check_staleness(T_SKEWED, HASH_V1, _smart_meta())
+    """Smart checker: older mtime + same hash -> cache is valid."""
+    decision = smart_checker.check(_source(T_SKEWED, HASH_V1), _entry(HASH_V1))
     assert not decision.is_stale
     assert decision.hash_match
 
@@ -45,8 +63,9 @@ def test_smart_detects_change_under_skew_if_hash_differs():
     Even with a skewed (older) mtime, if the content hash changed the smart
     checker must flag the cache as stale.
     """
-    altered_hash = compute_hash(V1_CONTENT + "extra")
-    decision = staleness_smart.check_staleness(T_SKEWED, altered_hash, _smart_meta())
+    altered_content = V1_CONTENT + "extra"
+    altered_hash = compute_hash(altered_content)
+    decision = smart_checker.check(_source(T_SKEWED, altered_hash, content=altered_content), _entry(HASH_V1))
     assert decision.is_stale
     assert not decision.hash_match
 
@@ -57,8 +76,9 @@ def test_naive_vs_smart_diverge_under_skew_with_change():
     - Naive: NOT stale (cannot see the change)
     - Smart: IS stale (hash reveals the change)
     """
-    altered_hash = compute_hash("factor=99\noperation=multiply\n")
-    naive = staleness_naive.check_staleness(T_SKEWED, _naive_meta())
-    smart = staleness_smart.check_staleness(T_SKEWED, altered_hash, _smart_meta())
+    altered_content = "factor=99\noperation=multiply\n"
+    altered_hash = compute_hash(altered_content)
+    naive = naive_checker.check(_source(T_SKEWED, altered_hash, content=altered_content), _entry(HASH_V1))
+    smart = smart_checker.check(_source(T_SKEWED, altered_hash, content=altered_content), _entry(HASH_V1))
     assert not naive.is_stale
     assert smart.is_stale

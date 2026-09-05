@@ -34,3 +34,5 @@ service-account*.json
 # Generated Cache Files (keep directory tracked via .gitkeep)
 cache/*.json
 !cache/.gitkeep
+cache/uploads/*
+!cache/uploads/.gitkeep

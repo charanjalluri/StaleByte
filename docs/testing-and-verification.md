@@ -16,7 +16,7 @@ The verification strategy spans three distinct layers: isolated unit tests, file
 ```
 +-----------------------------------------------------------------------+
 |                       End-to-End Runtime Tests                        |
-|   (runtime_naive.py & runtime_smart.py on real files in tmp_path)     |
+|        (runtime engine & run_naive / run_smart on tmp_path)           |
 +-----------------------------------------------------------------------+
                                     |
 +-----------------------------------------------------------------------+
@@ -39,7 +39,7 @@ The verification strategy spans three distinct layers: isolated unit tests, file
 - **Error Handling**: Verifies graceful error raising (`FileNotFoundError` and `ValueError`) on missing or malformed JSON artifacts and metadata.
 
 ### End-to-End Runtime Tests
-- **Runtime Execution (`test_runtime_end_to_end.py`)**: Executes public entry points `runtime_naive.run()` and `runtime_smart.run()` with a real filesystem source file and cache state.
+- **Runtime Execution (`test_runtime_end_to_end.py`)**: Executes public entry points `runtime.run_naive()` and `runtime.run_smart()` with a real filesystem source file and cache state.
   - Naive Runtime: Demonstrates silent return of stale result `20`.
   - Smart Runtime: Demonstrates automatic cache invalidation, recompilation, persistence of updated artifact, and return of correct result `30`.
   - Idempotence: Verifies that unchanged source does not trigger redundant invalidation or rebuilds.
@@ -162,7 +162,7 @@ Executed using pytest in the project virtual environment:
 ```text
 ============================= test session starts =============================
 platform win32 -- Python 3.8.10, pytest-8.3.5, pluggy-1.5.0
-rootdir: D:\StaleByte\stalebyte
+rootdir: stalebyte
 collected 42 items
 
 tests/test_cache.py ........                                             [ 19%]
