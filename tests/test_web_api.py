@@ -91,14 +91,14 @@ def test_api_run_skew(web_server, tmp_cache):
 
 
 def test_static_index_html(web_server):
-    with urlopen(f"{web_server}/") as resp:
-        assert resp.status == 200
-        content = resp.read().decode("utf-8")
-        assert "StaleByte" in content
-        assert "Timestamp-Only Strategy" in content
-        assert "chat-widget" in content
-        assert "StaleByte Assistant" in content
-        assert "Ask a question" in content
+    for route in ("/", "/index.html", "/dashboard", "/demo"):
+        with urlopen(f"{web_server}{route}") as resp:
+            assert resp.status == 200
+            content = resp.read().decode("utf-8")
+            assert "StaleByte" in content
+            assert "Timestamp-Only Strategy" in content
+            assert "chat-widget" in content
+            assert "StaleByte Assistant" in content
 
 
 def test_api_chat_status(web_server):
@@ -191,19 +191,23 @@ def test_api_explain_endpoint(web_server, monkeypatch):
         assert data2["model"] == "muse-spark-1.3"
 
 
-def test_static_index_html_contains_explain_elements(web_server):
-    with urlopen(f"{web_server}/") as resp:
-        assert resp.status == 200
-        content = resp.read().decode("utf-8")
-        assert "btn-explain-naive" in content
-        assert "btn-explain-smart" in content
-        assert "naive-ai-box" in content
-        assert "smart-ai-box" in content
-        assert "Explain this" in content
-        assert "upload-check" in content
-        assert "upload-dropzone" in content
-        assert "btn-upload-check" in content
-        assert "source-file-input" in content
+def test_static_html_contains_interactive_elements(web_server):
+    """Verify interactive dashboard elements across /, /dashboard, and /demo."""
+    for route in ("/", "/dashboard", "/demo"):
+        with urlopen(f"{web_server}{route}") as resp:
+            assert resp.status == 200
+            content = resp.read().decode("utf-8")
+            assert "btn-explain-naive" in content
+            assert "btn-explain-smart" in content
+            assert "naive-ai-box" in content
+            assert "smart-ai-box" in content
+            assert "Explain this" in content
+            assert "upload-check" in content
+            assert "upload-dropzone" in content
+            assert "btn-upload-check" in content
+            assert "source-file-input" in content
+            assert "chat-widget" in content
+            assert "chat-panel" in content
 
 
 def test_send_error_has_content_length(web_server):

@@ -80,7 +80,7 @@ class StaleByteRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(result)
                 return
 
-            if path == "/" or path == "/index.html":
+            if path in ("/", "/index.html", "/dashboard", "/dashboard.html", "/demo", "/demo.html"):
                 self._serve_static_file(STATIC_DIR / "index.html")
                 return
 
