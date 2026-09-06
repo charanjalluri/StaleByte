@@ -170,6 +170,8 @@ class StaleByteRequestHandler(BaseHTTPRequestHandler):
                 uploads_dir = store.cache_dir / "uploads"
                 if uploads_dir.is_dir():
                     for p in uploads_dir.iterdir():
+                        if p.name == ".gitkeep":
+                            continue
                         try:
                             p.unlink()
                         except OSError:

@@ -1,7 +1,7 @@
 # StaleByte — Complete Test Case Documentation
 
-> **Total Test Cases: 106** across **18 test files**  
-> All tests pass: `99 passed in 3.41s` (verified run on 2026-09-05)
+> **Total Test Cases: 131** across **19 test files**  
+> All tests pass: `131 passed in 49.51s` (verified run on 2026-09-06)
 
 ---
 

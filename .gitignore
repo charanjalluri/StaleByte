@@ -2,11 +2,17 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+stalebyte.egg-info/
+dist/
+build/
 
 # Testing & Coverage
 .pytest_cache/
 .coverage
 htmlcov/
+.impeccable/
+
 
 # Virtual Environments
 .venv/

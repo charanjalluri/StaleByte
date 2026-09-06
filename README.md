@@ -2,8 +2,8 @@
 
 <div align="center">
 
-![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=flat-square&logo=python)
-![Tests](https://img.shields.io/badge/Tests-99%20passed-brightgreen?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue?style=flat-square&logo=python)
+![Tests](https://img.shields.io/badge/Tests-131%20passed-brightgreen?style=flat-square)
 ![Naive](https://img.shields.io/badge/Naive%20Failure%20Rate-63.9%25-red?style=flat-square)
 ![Robust](https://img.shields.io/badge/Robust%20Failure%20Rate-0.0%25-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)
@@ -155,26 +155,105 @@ The browser dashboard provides:
 
 ---
 
-## CLI Reference
+## Installation & CLI Setup
+
+Install StaleByte in editable mode to expose the `stalebyte` command directly:
 
 ```bash
-# Build a source file and cache the artifact
-python cli.py build path/to/program.src --input 10
+git clone https://github.com/charanjalluri/StaleByte.git
+cd StaleByte/stalebyte
 
+# Activate virtual environment
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+source .venv/bin/activate       # macOS / Linux
+
+# Install editable package
+pip install -e .
+```
+
+---
+
+## CLI Reference
+
+The `stalebyte` command provides a unified interface for staleness checking, builds, demos, and fuzz testing:
+
+```bash
 # Check if the cached artifact is stale
-python cli.py check path/to/program.src
+stalebyte check path/to/program.src
 
-# Remove all cached artifacts
-python cli.py clean
+# Build a source file and cache the artifact
+stalebyte build path/to/program.src --input 10
 
-# Run the scripted demo
-python cli.py demo
+# Run the scripted collision & clock skew demo
+stalebyte demo
 
 # Run fuzz trials and print statistics
-python cli.py fuzz --trials 10000 --seed 42
+stalebyte fuzz --trials 10000 --seed 42
 
-# Machine-readable JSON output
-python cli.py fuzz --trials 10000 --json
+# Machine-readable JSON fuzz output
+stalebyte fuzz --trials 10000 --json
+
+# Remove all cached artifacts
+stalebyte clean
+```
+
+### Semantics of `stalebyte check <path>`
+
+`stalebyte check <path>` computes the current content hash (SHA-256) of the file at `<path>`, compares it against StaleByte's own stored cache entry from the last time it was checked, and reports whether the content has genuinely changed — independent of file timestamps.
+
+- **Exit code `0`**: Cache is valid and up to date (no staleness detected), OR no baseline cache exists yet on disk (informational notice displayed; does not block initial adoption).
+- **Exit code `1`**: Staleness is detected (file content has changed compared to its stored cache baseline; rebuild required).
+
+### Roadmap & Scope
+
+> [!IMPORTANT]
+> StaleByte is a standalone content-addressable cache primitive. In this version, it does **NOT** integrate with or inspect any other tool's existing build cache (no `__pycache__`, Docker layer, or GNU Make integration in this version).
+
+**Roadmap items:**
+- [ ] Direct inspection and verification of external build caches (`__pycache__`, GNU Make, Docker layers)
+- [ ] Transitive multi-file dependency graph DAG invalidation
+- [ ] Remote cache backends (S3, GCS, content-addressable CAS stores)
+- [x] Pre-commit hook integration for git repository staleness audits (`.pre-commit-hooks.yaml`)
+
+---
+
+## Pre-Commit Hook Integration
+
+StaleByte includes a pre-commit hook (`stalebyte-check`) to verify cache freshness and prevent committing stale artifacts.
+
+### Usage in Another Repository
+
+Add StaleByte to your target repository's `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/charanjalluri/StaleByte.git
+    rev: v1.3.0  # Use latest release tag or commit SHA
+    hooks:
+      - id: stalebyte-check
+```
+
+### Hook Specifications
+
+| Property | Value | Description |
+|---|---|---|
+| **Hook ID** | `stalebyte-check` | Identifier referenced in `.pre-commit-config.yaml` |
+| **Entry Point** | `stalebyte check .` | Recursively inspects all `.src` files in the repository |
+| **Exit Code 0** | Clean / Initial Baseline (Pass) | Cache matches current content SHA-256 hashes, or no baseline exists yet (commit succeeds) |
+| **Exit Code 1** | Stale / Rebuild Required (Fail) | Content was modified without rebuilding cache — aborts commit |
+
+### Installation & Local Run
+
+```bash
+# 1. Install pre-commit in your environment
+pip install pre-commit
+
+# 2. Install git hook scripts into .git/hooks/
+pre-commit install
+
+# 3. Test manually across all files
+pre-commit run stalebyte-check --all-files
 ```
 
 ---
@@ -185,15 +264,16 @@ python cli.py fuzz --trials 10000 --json
 python -m pytest tests/ -v
 ```
 
-**99 tests, 0 failures, 0 warnings.**
+**131 tests, 0 failures, 0 warnings.**
 
 | Test Category | Tests | What Is Proven |
 |---|---|---|
-| AI Service | 8 | Streaming SSE, error handling, key lookup, fallback |
+| AI Service | 8 | Streaming SSE, error handling, key lookup, summary fallback |
 | Cache Manager | 8 | Save/load integrity, invalidation, malformed input |
-| Cache Store | 1 | Full CacheStore lifecycle |
-| CLI and Real Filesystem | 8 | Real `os.stat()` mtimes, `os.utime()` collision on real disk |
+| Cache Store | 3 | Full CacheStore lifecycle, corrupt file warning, thread concurrency |
+| CLI and Real Filesystem | 11 | Real `os.stat()` mtimes, `os.utime()` collision, recursive scan, pre-commit |
 | Clock Skew | 4 | Naive vs Robust divergence under skewed mtime |
+| Compiler & Bytecode VM | 14 | DSL parsing, factor validation, bytecode stack interpreter |
 | Statistical Fuzzing | 4 | 2,000-trial failure rates, JSON output, CLI integration |
 | SHA-256 Hash | 5 | Stability, sensitivity, empty string, case-sensitivity |
 | Invalidators | 4 | Resolution collision, clock skew, both invalidators |
@@ -206,7 +286,7 @@ python -m pytest tests/ -v
 | Unified Runtime | 2 | Pluggable invalidator collision scenario |
 | Upload Check | 6 | Full upload lifecycle, validation rejections |
 | Virtual Clock | 3 | Resolution window boundary, skew offset |
-| Web API | 10 | All HTTP routes, streaming chat, static HTML |
+| Web API | 28 | All HTTP routes, streaming chat, static HTML, error handling |
 
 ---
 
@@ -220,11 +300,11 @@ python -m venv .venv
 .venv\Scripts\activate        # Windows
 source .venv/bin/activate       # macOS / Linux
 
-pip install -r requirements.txt
-python demo.py
+pip install -e .
+stalebyte demo
 ```
 
-**Runtime requirements:** Python 3.11+, standard library only (no external dependencies beyond `pytest` for testing).
+**Runtime requirements:** Python 3.8+, standard library only (no external dependencies beyond `pytest` for testing).
 
 ---
 
@@ -253,7 +333,7 @@ StaleByte works out of the box with zero external configuration. For optional AI
 |---|---|
 | Naive invalidator silent failure rate (10,000 trials) | **63.9%** |
 | Robust invalidator failure rate | **0.0%** |
-| Automated test count | **99 passed** |
+| Automated test count | **131 passed** |
 | Real-disk timestamp collision reproduced via `os.utime()` | **Yes** |
 | AI diagnostic explanation | **Meta Muse Spark 1.3** |
 | Web API endpoints | **8** |

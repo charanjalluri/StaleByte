@@ -180,3 +180,54 @@ def test_cli_demo_command(capsys):
     assert "STALEBYTE — Compiled Cache Staleness Detection Demo" in out
     assert "SCENARIO 1" in out
     assert "SCENARIO 2" in out
+
+
+def test_cli_check_directory_end_to_end(tmp_path, capsys):
+    src_dir = tmp_path / "project_src"
+    src_dir.mkdir()
+    f1 = src_dir / "f1.src"
+    f2 = src_dir / "f2.src"
+    f1.write_text("operation=multiply\nfactor=3\n", encoding="utf-8")
+    f2.write_text("operation=multiply\nfactor=4\n", encoding="utf-8")
+    cache_dir = tmp_path / "dir_cache"
+
+    # Before build -> check directory reports no baseline -> exit 0 with notice
+    code_before = cli.main(["check", str(src_dir), "--cache-dir", str(cache_dir)])
+    assert code_before == 0
+    assert "no baseline established" in capsys.readouterr().out
+
+    # Build both files
+    assert cli.main(["build", str(f1), "--cache-dir", str(cache_dir)]) == 0
+    assert cli.main(["build", str(f2), "--cache-dir", str(cache_dir)]) == 0
+    capsys.readouterr()
+
+    # After build -> check directory reports fresh -> exit 0
+    code_after = cli.main(["check", str(src_dir), "--cache-dir", str(cache_dir)])
+    assert code_after == 0
+    out_after = capsys.readouterr().out
+    assert "f1.src" in out_after
+    assert "f2.src" in out_after
+    assert "VALID CACHE (HIT)" in out_after
+
+    # Mutate f1 -> check directory reports staleness -> exit 1
+    f1.write_text("operation=multiply\nfactor=9\n", encoding="utf-8")
+    code_mutated = cli.main(["check", str(src_dir), "--cache-dir", str(cache_dir)])
+    assert code_mutated == 1
+
+
+def test_pre_commit_hooks_yaml_manifest():
+    manifest_path = Path(__file__).parent.parent / ".pre-commit-hooks.yaml"
+    assert manifest_path.exists(), ".pre-commit-hooks.yaml must exist at repo root"
+    content = manifest_path.read_text(encoding="utf-8")
+
+    import yaml
+    hooks = yaml.safe_load(content)
+    assert isinstance(hooks, list)
+    hook_ids = {h["id"]: h for h in hooks}
+    assert "stalebyte-check" in hook_ids
+
+    hook = hook_ids["stalebyte-check"]
+    assert "stalebyte check ." in hook["entry"]
+    assert hook.get("language") == "python"
+    assert hook.get("pass_filenames") is False
+

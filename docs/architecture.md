@@ -26,8 +26,8 @@ flowchart TD
 
     subgraph CLIENTS [" 1. Presentation & Client Layer "]
         WEB["🖥️ Web Dashboard (HTML5 / CSS3 / ES6)"]:::clientStyle
-        CLI["💻 CLI & Fuzz Tools (cli.py / fuzz.py)"]:::clientStyle
-        TEST["🧪 Test Suite (pytest · 115 tests)"]:::clientStyle
+        CLI["💻 CLI & Pre-Commit Tools (cli.py / .pre-commit-hooks.yaml)"]:::clientStyle
+        TEST["🧪 Test Suite (pytest · 131 tests)"]:::clientStyle
     end
 
     subgraph API [" 2. API Server & Gateway (web/app.py) "]
@@ -134,6 +134,11 @@ flowchart TD
 - **Cache Store (`cache.py`)**: Thread-safe cache persistence using `threading.Lock` and atomic file write replacements (`_atomic_write_text` via temp files).
 - **Pluggable Invalidators (`invalidators.py`)**: Polymorphic validator interface implementing `check(source, cache_entry) -> InvalidationDecision`.
 - **Compiler & Bytecode VM (`lib/compiler.py`)**: Safe stack machine supporting arithmetic transformations without dynamic interpreters (`eval`, `exec`).
+
+### 4.4 CLI & Pre-Commit Integration (`cli.py`, `.pre-commit-hooks.yaml`)
+- **CLI Subcommands**: `stalebyte check <path>`, `build`, `demo`, `fuzz`, and `clean`.
+- **Recursive Directory Inspection**: `stalebyte check <directory>` walks all `.src` files recursively, skipping hidden and cache directories. Returns exit code `0` on clean state or unbuilt initial baseline, and exit code `1` if any file is genuinely stale.
+- **Pre-Commit Hook**: Integrates via `.pre-commit-hooks.yaml` (`id: stalebyte-check`, `entry: stalebyte check .`), preventing commits of modified source files without updated cache baselines.
 
 ---
 

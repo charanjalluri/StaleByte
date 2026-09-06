@@ -28,7 +28,7 @@ An AI layer (Meta Muse Spark 1.3) is integrated via `services/ai_service.py` to 
 
 The correctness claim is verified at three levels:
 
-**Unit and integration testing (99 tests, 0 failures):** Every boundary condition is covered — equal timestamps, ±1 unit, epoch zero, far-future timestamps, hash mismatch under identical mtime, hash match under skewed mtime, and real-disk collision reproduction via `os.utime()`. The full test case document is in `test_case.md`.
+**Unit and integration testing (131 tests, 0 failures):** Every boundary condition is covered — equal timestamps, ±1 unit, epoch zero, far-future timestamps, hash mismatch under identical mtime, hash match under skewed mtime, compiler parsing and bytecode VM boundaries, and real-disk collision reproduction via `os.utime()`. The full test case document is in `test_case.md`.
 
 **Statistical fuzz testing (10,000 randomized trials):** Trials randomly vary clock resolution (0.5s – 4.0s), skew offset (0s – 200s), and source content mutations. Across all 10,000 trials:
 
@@ -47,14 +47,14 @@ The naive strategy fails silently in nearly two-thirds of adversarial conditions
 
 | Specification | Detail |
 |---|---|
-| Language | Python 3.11+ |
+| Language | Python 3.8+ |
 | External dependencies | None (stdlib only; `pytest` for tests) |
 | Hash algorithm | SHA-256 (via `hashlib`) |
 | Cache format | JSON, path-keyed by `artifact_<hash>.json` |
 | Web server | stdlib `http.server.ThreadingHTTPServer` |
 | AI model | Meta Muse Spark 1.3 via REST + SSE |
 | Test framework | `pytest` |
-| Test count | 99 passed, 0 failed, 0 warnings |
+| Test count | 131 passed, 0 failed, 0 warnings |
 | Fuzz trials | 10,000 (seed=42) |
 
 ---

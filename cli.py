@@ -8,10 +8,11 @@ and SHA-256 content hashes, while providing an explicit --demo mode for scripted
 timestamp collision and clock skew simulations.
 
 Commands:
-    python cli.py check <path> [--demo]
-    python cli.py build <path> [--input <val>] [--demo]
-    python cli.py demo
-    python cli.py clean [<path>]
+    stalebyte check <path> [--demo]
+    stalebyte build <path> [--input <val>] [--demo]
+    stalebyte demo
+    stalebyte fuzz [-n <trials>] [--json]
+    stalebyte clean [<path>]
 """
 
 from __future__ import annotations
@@ -70,18 +71,13 @@ def _load_source_file(path_str: str, real_mode: bool = True) -> SourceFile:
     return source
 
 
-def cmd_check(args: argparse.Namespace) -> int:
-    """Run Naive and Robust staleness checks on a source file."""
-    real_mode = not args.demo
-    source = _load_source_file(args.path, real_mode=real_mode)
-    cache_dir = Path(args.cache_dir) if args.cache_dir else None
-    store = CacheStore(cache_dir=cache_dir)
+def _check_single_source(source: SourceFile, store: CacheStore, demo_mode: bool) -> int:
+    """Run Naive and Robust staleness checks on a single source file."""
     runtime = Runtime(cache_store=store)
-
     naive_decision, cached_entry = runtime.check_staleness(source, NaiveInvalidator())
     robust_decision, _ = runtime.check_staleness(source, RobustInvalidator())
 
-    mode_label = "SIMULATED (VirtualClock)" if args.demo else "REAL FILESYSTEM (os.stat)"
+    mode_label = "SIMULATED (VirtualClock)" if demo_mode else "REAL FILESYSTEM (os.stat)"
 
     print("=" * 72)
     print(f"StaleByte Staleness Inspection [{mode_label}]")
@@ -93,8 +89,9 @@ def cmd_check(args: argparse.Namespace) -> int:
 
     print("\n--- Cache State ---")
     if cached_entry is None:
-        print("Status        : No cached artifact found on disk.")
-        print("Recommendation: Run `python cli.py build <path>` to build and populate cache.")
+        print("Status        : No cached artifact found on disk (no baseline established).")
+        print("Notice        : File has never been compiled. No cache baseline exists to detect staleness against.")
+        print("Recommendation: Run `stalebyte build <path>` to compile and establish initial cache baseline.")
         print("=" * 72)
         return 0
 
@@ -129,7 +126,38 @@ def cmd_check(args: argparse.Namespace) -> int:
         print("Notice: Validators diverged.")
 
     print("=" * 72)
-    return 0
+    return 1 if robust_decision.is_stale else 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """Run Naive and Robust staleness checks on a source file or directory."""
+    real_mode = not args.demo
+    cache_dir = Path(args.cache_dir) if args.cache_dir else None
+    store = CacheStore(cache_dir=cache_dir)
+
+    target_path = Path(args.path).resolve()
+    if not target_path.exists():
+        _print_error(f"Source file '{args.path}' does not exist.")
+        sys.exit(1)
+
+    if target_path.is_dir():
+        src_files = [
+            p for p in sorted(target_path.rglob("*.src"))
+            if not any(part.startswith(".") or part in ("cache", "__pycache__", "build", "dist") for part in p.parts)
+        ]
+        if not src_files:
+            print(f"No .src files found under directory '{args.path}'.")
+            return 0
+        overall_code = 0
+        for p in src_files:
+            source = _load_source_file(str(p), real_mode=real_mode)
+            code = _check_single_source(source, store, demo_mode=args.demo)
+            if code != 0:
+                overall_code = 1
+        return overall_code
+
+    source = _load_source_file(args.path, real_mode=real_mode)
+    return _check_single_source(source, store, demo_mode=args.demo)
 
 
 def cmd_build(args: argparse.Namespace) -> int:
@@ -223,8 +251,19 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
     # check subcommand
-    check_parser = subparsers.add_parser("check", help="Inspect cache staleness for a source file")
-    check_parser.add_argument("path", type=str, help="Path to .src source file")
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Inspect cache staleness for a source file (computes SHA-256 vs stored cache)",
+        description=(
+            "Inspect cache staleness for a source file. Computes the current content hash "
+            "of the file at <path>, compares it against StaleByte's own stored cache entry "
+            "from the last time it was checked, and reports whether the content has genuinely "
+            "changed — independent of file timestamps. This is a standalone content-addressable "
+            "cache primitive. Note: It does NOT integrate with or inspect external build caches "
+            "(__pycache__, Docker layer, or Make integration in this version)."
+        ),
+    )
+    check_parser.add_argument("path", type=str, nargs="?", default=".", help="Path to .src source file or directory (default: .)")
     check_parser.add_argument("--demo", action="store_true", help="Use simulated clock mode")
     check_parser.add_argument("--cache-dir", type=str, default=None, help="Custom cache directory")
 

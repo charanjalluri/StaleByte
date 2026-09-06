@@ -1,0 +1,7 @@
+- id: stalebyte-check
+  name: stalebyte-check
+  description: Verify compiled cache staleness using StaleByte content-addressable checks
+  entry: stalebyte check .
+  language: python
+  pass_filenames: false
+  always_run: true

@@ -124,7 +124,7 @@ Every component produced with AI assistance was subjected to strict engineering 
                   |
                   v
 +-----------------------------------+
-|    Full Passing Test Suite (42)   |
+|   Full Passing Test Suite (131)   |
 +-----------------------------------+
 ```
 
@@ -163,21 +163,15 @@ Executed using pytest in the project virtual environment:
 ============================= test session starts =============================
 platform win32 -- Python 3.8.10, pytest-8.3.5, pluggy-1.5.0
 rootdir: stalebyte
-collected 42 items
+configfile: pyproject.toml
+collected 131 items
 
-tests/test_cache.py ........                                             [ 19%]
-tests/test_clock_skew.py ....                                            [ 28%]
-tests/test_hash.py .....                                                 [ 40%]
-tests/test_naive_checker.py .....                                        [ 52%]
-tests/test_runtime_end_to_end.py ....                                    [ 61%]
-tests/test_smart_checker.py ......                                       [ 76%]
-tests/test_timestamp_window.py ..........                                [100%]
-
-============================= 42 passed in 0.20s ==============================
+131 passed in 47.96s
+============================ 131 passed in 47.96s =============================
 ```
 
-- **Total Tests**: 42
-- **Passed**: 42
+- **Total Tests**: 131
+- **Passed**: 131
 - **Failed**: 0
 - **Skipped**: 0
 - **Warnings**: 0

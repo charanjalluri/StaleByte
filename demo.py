@@ -16,7 +16,7 @@ from pathlib import Path
 # Ensure root directory is importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-from cache import CacheStore
+from cache import CacheStore, InMemoryCacheStore
 from clock import VirtualClock
 from invalidators import NaiveInvalidator, RobustInvalidator
 from runtime import Runtime
@@ -124,8 +124,8 @@ def main() -> None:
     print("  STALEBYTE — Compiled Cache Staleness Detection Demo")
     _separator("=")
 
-    demo_cache_dir = Path(__file__).parent / "cache"
-    runtime = Runtime(cache_store=CacheStore(cache_dir=demo_cache_dir))
+    # Use isolated InMemoryCacheStore to prevent any disk cache or real os.stat() mtimes from leaking
+    runtime = Runtime(cache_store=InMemoryCacheStore())
 
     run_scenario_resolution_collision(runtime)
     _separator("-")

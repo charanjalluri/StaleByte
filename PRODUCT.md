@@ -29,8 +29,8 @@ Engineering architecture reviews, compiler and runtime verification, systems des
 - Prioritizes instant cognitive comprehension and clear data contrast over superficial decoration
 
 ## Evidence on Hand
-- Working core Python engine (`clock.py`, `source.py`, `compiler.py`, `cache.py`, `invalidators.py`, `runtime.py`, `demo.py`)
-- 63 passing unit and integration tests across all collision and skew scenarios
+- Working core Python engine (`clock.py`, `source.py`, `lib/compiler.py`, `cache.py`, `invalidators.py`, `runtime/`, `demo.py`)
+- 131 passing unit, integration, and end-to-end tests across all collision and skew scenarios
 - Real-world documented failure modes in GNU Make, Python bytecode compilation (`.pyc`), and Docker layer caching
 
 ## Product Principles
