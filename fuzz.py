@@ -17,6 +17,18 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
+# Ensure UTF-8 output encoding across platforms (e.g. Windows consoles defaulting to cp1252)
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from cache import CacheEntry
 from clock import VirtualClock
 from invalidators import NaiveInvalidator, RobustInvalidator
