@@ -34,6 +34,10 @@ def test_prepare_messages_preserves_existing_system_prompt():
 
 
 def test_unconfigured_yields_friendly_setup_guidance(monkeypatch):
+    # Prevent load_env_file() from re-reading the live .env file after the
+    # delenv() calls above — _ENV_LOADED=True skips the disk read, keeping
+    # the test deterministic regardless of what .env contains on disk.
+    monkeypatch.setattr(ai_service, "_ENV_LOADED", True)
     monkeypatch.delenv("MUSE_SPARK_API_KEY", raising=False)
     monkeypatch.delenv("META_API_KEY", raising=False)
     monkeypatch.delenv("MUSE_API_KEY", raising=False)

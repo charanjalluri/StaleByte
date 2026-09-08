@@ -147,6 +147,8 @@ def run_fuzz_suite(trials: int = DEFAULT_TRIALS, seed: int | None = None) -> Fuz
     """
     Run N randomized fuzzing trials and compute comprehensive statistics.
     """
+    if not isinstance(trials, int) or isinstance(trials, bool) or trials <= 0:
+        raise ValueError(f"'trials' must be a positive integer, got {trials!r}")
     rng = random.Random(seed)
 
     naive_correct = 0
@@ -178,7 +180,8 @@ def run_fuzz_suite(trials: int = DEFAULT_TRIALS, seed: int | None = None) -> Fuz
         f"Naive invalidator fails silently in {naive_fail_rate:.1f}% of randomized edits "
         f"landing within boundary windows ({causes['resolution_collision']} collisions, "
         f"{causes['clock_skew']} clock skews). "
-        f"Robust SHA-256 validator achieves 100.0% accuracy (0.0% failure rate across {trials:,} trials)."
+        f"Robust SHA-256 validator achieves {100.0 - robust_fail_rate:.1f}% accuracy "
+        f"({robust_fail_rate:.1f}% failure rate across {trials:,} trials)."
     )
 
     return FuzzSummary(
@@ -250,7 +253,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    summary = run_fuzz_suite(trials=args.trials, seed=args.seed)
+    try:
+        summary = run_fuzz_suite(trials=args.trials, seed=args.seed)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
 
     if args.json:
         print(json.dumps(summary.to_dict(), indent=2))

@@ -1,14 +1,19 @@
 """
 cache_manager.py
 ----------------
-Saves, loads, and invalidates the compiled artifact and its metadata.
-Both files live under stalebyte/cache/.
+Legacy single-file cache helpers (default artifact.json / metadata.json pair).
+
+Canonical persistence for new code is cache.CacheStore (atomic writes,
+per-file path keys, locking). This module is kept for backward compatibility
+with existing scenarios/tests and delegates the default-pair layout only;
+it never touches path-keyed artifact_<hash>.json files owned by CacheStore.
 """
 
 from __future__ import annotations
 
 import json
 import uuid
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +33,7 @@ def save_cache(
     source_hash: str,
     source_version: str,
     t_cache: float | None = None,
+    source_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """
     Persist *artifact* and its metadata to disk.
@@ -41,6 +47,9 @@ def save_cache(
     t_cache         : Optional override for the cache timestamp (float epoch).
                       Defaults to current UTC time.  Use in tests/scenarios for
                       deterministic behaviour.
+    source_path     : Optional source file path. When given, the entry is also
+                      written to the path-keyed artifact_<hash>.json pair owned
+                      by CacheStore, keeping legacy and unified readers in sync.
 
     Returns
     -------
@@ -58,14 +67,13 @@ def save_cache(
         "source_size": len(source_content.encode("utf-8")),
         "source_version": source_version,
     }
+    if source_path is not None:
+        metadata["source_path"] = str(source_path)
 
-    # Clean up any stale path-keyed artifacts from previous runs
-    for pattern in ("artifact_*.json", "metadata_*.json"):
-        for p in CACHE_DIR.glob(pattern):
-            try:
-                p.unlink()
-            except OSError:
-                pass
+    # NOTE: Do not delete path-keyed artifact_*.json / metadata_*.json here.
+    # CacheStore.save() maintains per-file entries alongside the default
+    # artifact.json/metadata.json pair; wiping them on every legacy save
+    # clobbers multi-file state owned by the unified Runtime.
 
     ARTIFACT_PATH.write_text(
         json.dumps(artifact, indent=2), encoding="utf-8"
@@ -73,6 +81,26 @@ def save_cache(
     METADATA_PATH.write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"
     )
+
+    # Mirror into the path-keyed pair when the caller knows the source path,
+    # so CacheStore.load(source_path) sees the same version as the default.
+    if source_path is not None:
+        try:
+            from cache import compute_path_key
+
+            key = compute_path_key(source_path)
+            (CACHE_DIR / f"artifact_{key}.json").write_text(
+                json.dumps(artifact, indent=2), encoding="utf-8"
+            )
+            (CACHE_DIR / f"metadata_{key}.json").write_text(
+                json.dumps(metadata, indent=2), encoding="utf-8"
+            )
+        except Exception as exc:
+            warnings.warn(
+                f"[cache_manager] Failed to write path-keyed mirror for '{source_path}': {exc}",
+                UserWarning,
+                stacklevel=2,
+            )
     return metadata
 
 
@@ -129,17 +157,18 @@ def cache_exists() -> bool:
 
 def invalidate_cache() -> None:
     """
-    Remove both cache files if they exist.
+    Remove the default cache pair if present.
 
     Safe to call even when no cache is present.
+    NOTE: intentionally scoped to artifact.json / metadata.json only so
+    multi-file path-keyed entries owned by CacheStore are preserved.
     """
-    for pattern in ("artifact*.json", "metadata*.json"):
-        for path in CACHE_DIR.glob(pattern):
-            if path.exists():
-                try:
-                    path.unlink()
-                except OSError:
-                    pass
+    for path in (ARTIFACT_PATH, METADATA_PATH):
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------------------

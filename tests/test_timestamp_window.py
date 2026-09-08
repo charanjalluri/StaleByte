@@ -80,9 +80,10 @@ class TestSmartBoundary:
         )
         assert d.is_stale
 
-    def test_newer_ts_same_hash_is_stale(self):
+    def test_newer_ts_same_hash_is_not_stale(self):
+        # touch / checkout: newer mtime, identical content -> valid (hash is ground truth)
         d = smart_checker.check(_source(1001.0, HASH_V1), _entry(1000.0, HASH_V1))
-        assert d.is_stale
+        assert not d.is_stale
 
     def test_older_ts_same_hash_is_not_stale(self):
         d = smart_checker.check(_source(999.0, HASH_V1), _entry(1000.0, HASH_V1))

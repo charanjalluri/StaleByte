@@ -138,7 +138,11 @@ class StaleByteRequestHandler(BaseHTTPRequestHandler):
                 elif "multipart/form-data" in content_type:
                     body = self._parse_multipart(raw_bytes, content_type)
                 elif "text/plain" in content_type:
-                    body = {"filename": "upload.src", "content": raw_bytes.decode("utf-8")}
+                    try:
+                        body = {"filename": "upload.src", "content": raw_bytes.decode("utf-8")}
+                    except UnicodeDecodeError:
+                        self._send_error(HTTPStatus.BAD_REQUEST, "Request body is not valid UTF-8 text.")
+                        return
                 else:
                     try:
                         body = json.loads(raw_bytes.decode("utf-8"))
@@ -382,6 +386,7 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> HTTPServer:
 
 def check_startup_ai_service() -> dict[str, Any]:
     """Perform a lightweight ping to the AI endpoint on server startup and log status."""
+    ai_service.load_env_file()
     health = ai_service.check_ai_health(timeout=3.0)
     cfg_text = "KEY CONFIGURED" if health["configured"] else "NO KEY (Deterministic fallback active)"
     reach_text = "ENDPOINT REACHABLE" if health["reachable"] else f"ENDPOINT UNREACHABLE ({health.get('message', '')})"

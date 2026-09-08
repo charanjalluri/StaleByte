@@ -76,13 +76,13 @@ def test_no_false_invalidation_when_unchanged():
 
 def test_stale_when_source_newer_even_if_hash_same():
     """
-    If mtime is greater, is_stale must be True even when hash somehow matches.
-    (Defensive test — hash should also differ in practice.)
+    If mtime is greater but hash matches (touch / checkout), cache is VALID:
+    content hash is ground truth, timestamps are diagnostic only.
     """
     entry = _entry(FIXED_TS, HASH_V1)
     source = _source(FIXED_TS + 1, HASH_V1, content=V1_CONTENT)
     decision = checker.check(source, entry)
-    assert decision.is_stale
+    assert not decision.is_stale
 
 
 def test_valid_when_source_older_and_hash_same():

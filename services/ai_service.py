@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any, Generator
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -59,9 +60,6 @@ SYSTEM_PROMPT = (
 )
 
 
-from pathlib import Path
-
-
 _ENV_LOADED = False
 
 
@@ -98,8 +96,9 @@ def load_env_file() -> None:
                 pass
 
 
-# Auto-load on import
-load_env_file()
+# NOTE: no auto-load on import and no lazy reload inside getters (keeps tests
+# deterministic: monkeypatch.delenv must stick). Call load_env_file() explicitly
+# at server/CLI startup (see web/app.run_server and cli.main).
 
 
 def get_api_key() -> str | None:

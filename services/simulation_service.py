@@ -45,13 +45,13 @@ def run_normal_flow(
         path=str(source_manager.SOURCE_PATH),
         content=content,
         mtime=FIXED_TS,
-        size=len(content),
+        size=len(content.encode("utf-8")),
         content_hash=src_hash,
     )
     entry = CacheEntry(
         source_path=str(source_manager.SOURCE_PATH),
         cached_mtime=FIXED_TS,
-        cached_size=len(content),
+        cached_size=len(content.encode("utf-8")),
         content_hash=src_hash,
         artifact=artifact,
     )
@@ -161,7 +161,11 @@ def run_collision_scenario(
     # Step 3: Run naive runtime (uses stale V1 cache)
     naive_out = run_naive(input_value, get_mtime=source_manager.simulated_mtime)
 
-    # Step 4: Re-establish collision state and run smart runtime
+    # Step 4: Re-establish collision state before running the smart runtime.
+    # run_naive() in Step 3 may have consumed or modified the cache.
+    # Both runtimes must start from the identical pre-condition — V1 cached at
+    # FIXED_TS — so that the comparison is fair and the smart runtime's
+    # invalidation decision is based on the same stale V1 artifact.
     cache_manager.save_cache(
         artifact=artifact_v1,
         source_content=content_v1,
@@ -283,13 +287,13 @@ def run_clock_skew_scenario(
         path=str(source_manager.SOURCE_PATH),
         content=content,
         mtime=t_source_skewed,
-        size=len(content),
+        size=len(content.encode("utf-8")),
         content_hash=src_hash,
     )
     entry = CacheEntry(
         source_path=str(source_manager.SOURCE_PATH),
         cached_mtime=t_cache,
-        cached_size=len(content),
+        cached_size=len(content.encode("utf-8")),
         content_hash=src_hash,
         artifact=artifact,
     )
@@ -424,6 +428,13 @@ def check_uploaded_source(
     # Save to session/uploads directory
     target_dir = uploads_dir or (Path(__file__).parent.parent / "cache" / "uploads")
     target_dir.mkdir(parents=True, exist_ok=True)
+    # Basic disk-fill guard: cap number of stored uploads (1MB each is enforced above).
+    try:
+        existing_files = [p for p in target_dir.iterdir() if p.is_file() and p.name != ".gitkeep"]
+    except OSError:
+        existing_files = []
+    if len(existing_files) >= 1000 and (target_dir / clean_name) not in existing_files:
+        raise ValueError("Upload store is full (1000 file limit). Run cache clean before uploading.")
     target_path = target_dir / clean_name
 
     # Only write/touch file if content changed or file does not exist yet.
@@ -522,14 +533,19 @@ def run_check(
     if content is not None:
         return check_uploaded_source(filename=path_or_filename or "check.src", content=content, cache_dir=cache_dir)
 
-    target_path = Path(path_or_filename) if path_or_filename else (Path(__file__).parent.parent / "source.src")
-    if not target_path.exists():
-        fixture_path = Path(__file__).parent.parent / "tests" / "fixtures" / "valid_source.src"
-        if fixture_path.exists():
-            target_path = fixture_path
-        else:
-            source_manager.create_source(source_manager.V1_CONTENT)
-            target_path = source_manager.SOURCE_PATH
+    if path_or_filename is not None:
+        target_path = Path(path_or_filename)
+        if not target_path.exists():
+            raise FileNotFoundError(f"Source file not found: {target_path}")
+    else:
+        target_path = Path(__file__).parent.parent / "source.src"
+        if not target_path.exists():
+            fixture_path = Path(__file__).parent.parent / "tests" / "fixtures" / "valid_source.src"
+            if fixture_path.exists():
+                target_path = fixture_path
+            else:
+                source_manager.create_source(source_manager.V1_CONTENT)
+                target_path = source_manager.SOURCE_PATH
 
     source = SourceFile.from_file(target_path, real_mode=True)
     store = CacheStore(cache_dir=cache_dir)
@@ -583,27 +599,47 @@ def run_build(
     Build and execute artifact for a given path or content.
     Returns deterministic build result with decision, reason, hash, output, verdict.
     """
+    normalized = (strategy or "robust").lower()
+    if normalized not in ("robust", "naive"):
+        raise ValueError(
+            f"Unknown strategy {strategy!r}. Supported strategies: 'robust', 'naive'."
+        )
     if content is not None:
         target_dir = Path(__file__).parent.parent / "cache" / "uploads"
         target_dir.mkdir(parents=True, exist_ok=True)
-        fname = path_or_filename or "build.src"
+        fname = Path(path_or_filename).name if path_or_filename else "build.src"
         target_path = target_dir / fname
-        target_path.write_text(content, encoding="utf-8")
+        # Preserve mtime when content is unchanged so identical rebuilds stay cache HITs.
+        content_raw = content.encode("utf-8")
+        if target_path.exists():
+            try:
+                existing = target_path.read_bytes()
+            except Exception:
+                existing = None
+            if existing != content_raw:
+                target_path.write_bytes(content_raw)
+        else:
+            target_path.write_bytes(content_raw)
     else:
-        target_path = Path(path_or_filename) if path_or_filename else (Path(__file__).parent.parent / "source.src")
-        if not target_path.exists():
-            fixture_path = Path(__file__).parent.parent / "tests" / "fixtures" / "valid_source.src"
-            if fixture_path.exists():
-                target_path = fixture_path
-            else:
-                source_manager.create_source(source_manager.V1_CONTENT)
-                target_path = source_manager.SOURCE_PATH
+        if path_or_filename is not None:
+            target_path = Path(path_or_filename)
+            if not target_path.exists():
+                raise FileNotFoundError(f"Source file not found: {target_path}")
+        else:
+            target_path = Path(__file__).parent.parent / "source.src"
+            if not target_path.exists():
+                fixture_path = Path(__file__).parent.parent / "tests" / "fixtures" / "valid_source.src"
+                if fixture_path.exists():
+                    target_path = fixture_path
+                else:
+                    source_manager.create_source(source_manager.V1_CONTENT)
+                    target_path = source_manager.SOURCE_PATH
 
     source = SourceFile.from_file(target_path, real_mode=True)
     store = CacheStore(cache_dir=cache_dir)
     runtime = Runtime(cache_store=store)
 
-    invalidator = NaiveInvalidator() if strategy.lower() == "naive" else RobustInvalidator()
+    invalidator = NaiveInvalidator() if normalized == "naive" else RobustInvalidator()
     exec_res = runtime.execute(source, invalidator, input_value=input_value)
 
     verdict = "REBUILT" if exec_res.rebuilt else "CACHE HIT"
@@ -622,7 +658,7 @@ def run_build(
         },
         "reason": exec_res.decision.reason,
         "verdict": verdict,
-        "strategy": strategy,
+        "strategy": normalized,
         "input_value": input_value,
         "artifact": exec_res.artifact,
     }

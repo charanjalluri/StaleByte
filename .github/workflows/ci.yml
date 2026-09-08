@@ -1,0 +1,120 @@
+name: CI — StaleByte Test & Verification Suite
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-syntax:
+    name: Code Quality & Syntax Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install static analysis tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Validate Python syntax (py_compile)
+        run: |
+          python -m py_compile demo.py cli.py cache.py source.py invalidators.py fuzz.py
+          python -m py_compile runtime/engine.py lib/compiler.py lib/cache_manager.py
+          python -m py_compile services/simulation_service.py services/ai_service.py web/app.py
+
+      - name: Lint codebase with Ruff
+        run: |
+          ruff check .
+
+  test-matrix:
+    name: Test Suite (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    needs: lint-and-syntax
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies & package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[test]
+
+      - name: Run full pytest test suite
+        run: |
+          python -m pytest tests/ -v --durations=10
+
+      - name: Verify focused PDR staleness lifecycle
+        run: |
+          python -m pytest tests/test_runtime_end_to_end.py tests/test_timestamp_window.py tests/test_smart_checker.py tests/test_invalidators.py tests/test_cli_and_real_fs.py -v
+
+      - name: Run statistical fuzzing suite
+        run: |
+          stalebyte fuzz --trials 1000 --seed 42
+
+      - name: Reset demo cache baseline
+        run: |
+          python demo.py --reset
+
+      - name: Run deterministic presentation demo
+        run: |
+          python demo.py
+
+      - name: Verify clean state after demo
+        run: |
+          python demo.py --reset
+
+  pre-commit-hooks:
+    name: Pre-Commit Hook Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install package & pre-commit
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[test]
+          pip install pre-commit
+
+      - name: Validate pre-commit hook manifest
+        run: |
+          pre-commit validate-manifest .pre-commit-hooks.yaml
+
+      - name: Execute stalebyte check on codebase
+        run: |
+          stalebyte check .

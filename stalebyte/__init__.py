@@ -8,13 +8,15 @@ from __future__ import annotations
 
 from cache import CacheEntry, CacheStore, InMemoryCacheStore
 from clock import VirtualClock
-from invalidators import InvalidationDecision, Invalidator, NaiveInvalidator, RobustInvalidator
+from invalidators import BaseInvalidator as Invalidator
+from invalidators import BaseInvalidator, InvalidationDecision, NaiveInvalidator, RobustInvalidator
 from runtime import ExecutionResult, Runtime
 from source import SourceFile
 
 __version__ = "1.3.0"
 
 __all__ = [
+    "BaseInvalidator",
     "CacheEntry",
     "CacheStore",
     "ExecutionResult",
