@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cache import CacheEntry
 from invalidators import NaiveInvalidator, RobustInvalidator
-from lib.source_manager import compute_hash, V1_CONTENT
+from lib.source_manager import V1_CONTENT, compute_hash
 from source import SourceFile
 
 HASH_V1 = compute_hash(V1_CONTENT)

@@ -11,10 +11,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pytest
 from cache import CacheEntry
 from invalidators import NaiveInvalidator, RobustInvalidator
-from lib.source_manager import compute_hash, V1_CONTENT
+from lib.source_manager import V1_CONTENT, compute_hash
 from source import SourceFile
 
 HASH_V1 = compute_hash(V1_CONTENT)
@@ -80,9 +79,10 @@ class TestSmartBoundary:
         )
         assert d.is_stale
 
-    def test_newer_ts_same_hash_is_stale(self):
+    def test_newer_ts_same_hash_is_not_stale(self):
+        # touch / checkout: newer mtime, identical content -> valid (hash is ground truth)
         d = smart_checker.check(_source(1001.0, HASH_V1), _entry(1000.0, HASH_V1))
-        assert d.is_stale
+        assert not d.is_stale
 
     def test_older_ts_same_hash_is_not_stale(self):
         d = smart_checker.check(_source(999.0, HASH_V1), _entry(1000.0, HASH_V1))

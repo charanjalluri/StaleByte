@@ -18,13 +18,22 @@ Commands:
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
-from typing import NoReturn
+
+# Ensure UTF-8 output encoding across platforms (e.g. Windows consoles defaulting to cp1252)
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from cache import CacheStore
-from clock import VirtualClock
 from invalidators import NaiveInvalidator, RobustInvalidator
 from lib import compiler
 from runtime import Runtime
@@ -34,6 +43,30 @@ from source import SourceFile
 def _print_error(message: str) -> None:
     """Print a clean, user-facing error message to stderr."""
     print(f"Error: {message}", file=sys.stderr)
+
+
+def _resolve_cache_dir(cache_dir_str: str | None) -> Path | None:
+    """Validate --cache-dir and return a Path, refusing system locations."""
+    if not cache_dir_str:
+        return None
+    p = Path(cache_dir_str).resolve()
+    # Refuse filesystem roots, OS-critical dirs, and anything *inside* them
+    # (exact-match alone lets /etc/stalebyte, /usr/local/x, C:\Windows\Temp\x
+    # through — prefix matching closes the subtree bypass; manual startswith
+    # instead of Path.is_relative_to for Python 3.8 compatibility).
+    _denylist = ("/etc", "/bin", "/sbin", "/usr", "/System", "C:\\Windows", "C:/Windows")
+    if p == p.anchor or str(p) in _denylist or any(
+        str(p) == d or str(p).startswith(d.rstrip("/\\") + "/") or str(p).startswith(d.rstrip("/\\") + "\\")
+        for d in _denylist
+    ):
+        _print_error(f"Refusing to use system path '{cache_dir_str}' as cache directory.")
+        sys.exit(1)
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        _print_error(f"Cache directory '{cache_dir_str}' is not writable: {exc}")
+        sys.exit(1)
+    return p
 
 
 def _load_source_file(path_str: str, real_mode: bool = True) -> SourceFile:
@@ -132,7 +165,7 @@ def _check_single_source(source: SourceFile, store: CacheStore, demo_mode: bool)
 def cmd_check(args: argparse.Namespace) -> int:
     """Run Naive and Robust staleness checks on a source file or directory."""
     real_mode = not args.demo
-    cache_dir = Path(args.cache_dir) if args.cache_dir else None
+    cache_dir = _resolve_cache_dir(args.cache_dir)
     store = CacheStore(cache_dir=cache_dir)
 
     target_path = Path(args.path).resolve()
@@ -164,7 +197,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     """Build and execute source file, updating persistent cache."""
     real_mode = not args.demo
     source = _load_source_file(args.path, real_mode=real_mode)
-    cache_dir = Path(args.cache_dir) if args.cache_dir else None
+    cache_dir = _resolve_cache_dir(args.cache_dir)
     store = CacheStore(cache_dir=cache_dir)
     runtime = Runtime(cache_store=store)
 
@@ -193,14 +226,18 @@ def cmd_build(args: argparse.Namespace) -> int:
 def cmd_demo(args: argparse.Namespace) -> int:
     """Run scripted demo scenarios from demo.py."""
     import demo
-    demo.main()
+    demo.main([])
     return 0
 
 
 def cmd_fuzz(args: argparse.Namespace) -> int:
     """Run randomized fuzzing & statistical validation suite."""
     import fuzz
-    summary = fuzz.run_fuzz_suite(trials=args.trials, seed=args.seed)
+    try:
+        summary = fuzz.run_fuzz_suite(trials=args.trials, seed=args.seed)
+    except ValueError as exc:
+        _print_error(str(exc))
+        return 2
     if args.json:
         import json
         print(json.dumps(summary.to_dict(), indent=2))
@@ -211,7 +248,7 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
 
 def cmd_clean(args: argparse.Namespace) -> int:
     """Invalidate cache store."""
-    cache_dir = Path(args.cache_dir) if args.cache_dir else None
+    cache_dir = _resolve_cache_dir(args.cache_dir)
     store = CacheStore(cache_dir=cache_dir)
 
     if args.path:
@@ -289,6 +326,15 @@ def main(argv: list[str] | None = None) -> int:
     clean_parser.add_argument("--cache-dir", type=str, default=None, help="Custom cache directory")
 
     args = parser.parse_args(argv)
+
+    # Load .env once at CLI startup (ai_service has no import-time side effects
+    # so tests stay deterministic).
+    try:
+        from services import ai_service as _ai_service
+
+        _ai_service.load_env_file()
+    except Exception:
+        pass
 
     # Handle top-level --demo flag without subcommand
     if args.demo and not args.command:

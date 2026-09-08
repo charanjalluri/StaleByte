@@ -4,13 +4,12 @@ test_hash.py
 Tests proving SHA-256 fingerprinting behaviour.
 """
 
-import pytest
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lib.source_manager import compute_hash, V1_CONTENT, V2_CONTENT
+from lib.source_manager import V1_CONTENT, V2_CONTENT, compute_hash
 
 
 def test_hash_stable_for_identical_content():

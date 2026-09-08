@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
+
 from lib import cache_manager
 from web.app import create_server
 

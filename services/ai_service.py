@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any, Generator
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -59,9 +60,6 @@ SYSTEM_PROMPT = (
 )
 
 
-from pathlib import Path
-
-
 _ENV_LOADED = False
 
 
@@ -95,11 +93,12 @@ def load_env_file() -> None:
                     if key and key not in os.environ:
                         os.environ[key] = val
             except Exception:
-                pass
+                pass  # nosec: B110
 
 
-# Auto-load on import
-load_env_file()
+# NOTE: no auto-load on import and no lazy reload inside getters (keeps tests
+# deterministic: monkeypatch.delenv must stick). Call load_env_file() explicitly
+# at server/CLI startup (see web/app.run_server and cli.main).
 
 
 def get_api_key() -> str | None:
@@ -147,7 +146,7 @@ def check_ai_health(timeout: float = 3.0) -> dict[str, Any]:
     req = Request(endpoint, headers=headers, method="GET")
 
     try:
-        with urlopen(req, timeout=timeout) as resp:
+        with urlopen(req, timeout=timeout) as resp:  # nosec B310
             return {
                 "configured": configured,
                 "reachable": True,
@@ -250,7 +249,7 @@ def stream_chat_completion(
     )
 
     try:
-        with urlopen(req, timeout=timeout) as resp:
+        with urlopen(req, timeout=timeout) as resp:  # nosec B310
             buffer = ""
             for raw_line in resp:
                 line = raw_line.decode("utf-8")
@@ -352,7 +351,7 @@ def explain_diagnostic(diagnostic_data: dict[str, Any], timeout: float = 15.0) -
     )
 
     try:
-        with urlopen(req, timeout=timeout) as resp:
+        with urlopen(req, timeout=timeout) as resp:  # nosec B310
             data = json.loads(resp.read().decode("utf-8"))
             choices = data.get("choices", [])
             if choices:
@@ -405,7 +404,7 @@ def generate_result_summary(result_data: dict[str, Any], timeout: float = 25.0) 
     )
 
     try:
-        with urlopen(req, timeout=timeout) as resp:
+        with urlopen(req, timeout=timeout) as resp:  # nosec B310
             data = json.loads(resp.read().decode("utf-8"))
             choices = data.get("choices", [])
             if choices:

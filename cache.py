@@ -14,7 +14,7 @@ import sys
 import threading
 import uuid
 import warnings
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +84,28 @@ class CacheStore:
             )
         return (self.artifact_path, self.metadata_path)
 
+    def _default_belongs_to(self, source_path: str | Path) -> bool:
+        """Return True if the default artifact/metadata pair belongs to *source_path*.
+
+        A sourceless legacy default (no recorded path) belongs to any source
+        (single-file mode); an attributed default requires an exact
+        resolved-path match, never basename-only. Unreadable metadata returns
+        False so callers never delete state they cannot attribute.
+        """
+        try:
+            if not (self.artifact_path.exists() and self.metadata_path.exists()):
+                return False
+            meta = json.loads(self.metadata_path.read_text(encoding="utf-8"))
+            cached_sp = meta.get("source_path")
+            if cached_sp is None:
+                return True
+            try:
+                return str(Path(cached_sp).resolve()) == str(Path(source_path).resolve())
+            except Exception:
+                return cached_sp == str(source_path)
+        except Exception:
+            return False
+
     def exists(self, source_path: str | Path | None = None) -> bool:
         """Return True if both artifact and metadata exist for the given source_path or default."""
         with self._lock:
@@ -91,17 +113,26 @@ class CacheStore:
             if art_p.exists() and meta_p.exists():
                 return True
             # If source_path was given but specific cache doesn't exist, check default cache
+            # only on exact resolved-path match (never basename-only: different dirs
+            # with the same filename must not share a cache entry).
             if source_path is not None and self.artifact_path.exists() and self.metadata_path.exists():
                 try:
                     meta = json.loads(self.metadata_path.read_text(encoding="utf-8"))
                     cached_sp = meta.get("source_path")
-                    if (
-                        cached_sp is None
-                        or cached_sp == str(source_path)
-                        or cached_sp == str(Path(source_path).resolve())
-                        or Path(cached_sp).name == Path(source_path).name
-                    ):
+                    if cached_sp is None:
+                        # Sourceless legacy default (written by
+                        # lib.cache_manager.save_cache without source_path):
+                        # single-file mode, no path attribution exists, so the
+                        # default IS the cache for this source. Match it.
+                        # (New code via CacheStore.save always records
+                        # source_path, so multi-file entries still get the
+                        # exact-match check below — file A can never serve
+                        # file B.)
                         return True
+                    try:
+                        return str(Path(cached_sp).resolve()) == str(Path(source_path).resolve())
+                    except Exception:
+                        return cached_sp == str(source_path)
                 except Exception:
                     pass
             return False
@@ -152,15 +183,19 @@ class CacheStore:
                     try:
                         meta_check = json.loads(self.metadata_path.read_text(encoding="utf-8"))
                         cached_sp = meta_check.get("source_path")
-                        if (
-                            cached_sp is None
-                            or cached_sp == str(source_path)
-                            or cached_sp == str(Path(source_path).resolve())
-                            or Path(cached_sp).name == Path(source_path).name
-                        ):
+                        if cached_sp is None:
+                            # Sourceless legacy default: single-file mode, the
+                            # default pair IS this source's cache — use it.
                             target_art, target_meta = self.artifact_path, self.metadata_path
                         else:
-                            return None
+                            try:
+                                match = str(Path(cached_sp).resolve()) == str(Path(source_path).resolve())
+                            except Exception:
+                                match = cached_sp == str(source_path)
+                            if match:
+                                target_art, target_meta = self.artifact_path, self.metadata_path
+                            else:
+                                return None
                     except Exception:
                         return None
                 else:
@@ -198,13 +233,20 @@ class CacheStore:
                 art_p, meta_p = self._get_paths(source_path)
                 paths_to_remove.add(art_p)
                 paths_to_remove.add(meta_p)
+                # Drop the default pair only when it belongs to this source;
+                # otherwise `clean <path-B>` would wipe file A's entry and
+                # force a needless rebuild (safe direction, but wrong).
+                if self._default_belongs_to(source_path):
+                    paths_to_remove.add(self.artifact_path)
+                    paths_to_remove.add(self.metadata_path)
             elif self.cache_dir.exists():
                 for p in self.cache_dir.glob("*.json"):
                     paths_to_remove.add(p)
-
-            # Also remove default paths
-            paths_to_remove.add(self.artifact_path)
-            paths_to_remove.add(self.metadata_path)
+                paths_to_remove.add(self.artifact_path)
+                paths_to_remove.add(self.metadata_path)
+            else:
+                paths_to_remove.add(self.artifact_path)
+                paths_to_remove.add(self.metadata_path)
 
             for p in paths_to_remove:
                 if p.exists():
@@ -229,8 +271,13 @@ class InMemoryCacheStore(CacheStore):
 
     def exists(self, source_path: str | Path | None = None) -> bool:
         with self._lock:
-            key = str(Path(source_path).resolve()) if source_path else "__default__"
-            return key in self._entries or "__default__" in self._entries
+            if source_path is None:
+                return "__default__" in self._entries
+            try:
+                key = str(Path(source_path).resolve())
+            except Exception:
+                key = str(source_path)
+            return key in self._entries
 
     def save(self, entry: CacheEntry) -> CacheEntry:
         with self._lock:
@@ -243,14 +290,27 @@ class InMemoryCacheStore(CacheStore):
 
     def load(self, source_path: str | Path | None = None) -> CacheEntry | None:
         with self._lock:
-            key = str(Path(source_path).resolve()) if source_path else "__default__"
-            return self._entries.get(key) or self._entries.get("__default__")
+            if source_path is None:
+                return self._entries.get("__default__")
+            try:
+                key = str(Path(source_path).resolve())
+            except Exception:
+                key = str(source_path)
+            return self._entries.get(key)
 
     def invalidate(self, source_path: str | Path | None = None) -> None:
         with self._lock:
             if source_path is not None:
-                key = str(Path(source_path).resolve())
-                self._entries.pop(key, None)
+                try:
+                    key = str(Path(source_path).resolve())
+                except Exception:
+                    key = str(source_path)
+                removed = self._entries.pop(key, None)
+                # Keep __default__ consistent: if it pointed at the removed entry, drop it too
+                # so load(None)/exists(None) don't return a stale default after invalidation.
+                default_entry = self._entries.get("__default__")
+                if removed is not None and default_entry is removed:
+                    self._entries.pop("__default__", None)
             else:
                 self._entries.clear()
 

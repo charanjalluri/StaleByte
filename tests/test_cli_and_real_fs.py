@@ -9,11 +9,11 @@ and clean error reporting.
 from __future__ import annotations
 
 import os
-import sys
 import time
 from pathlib import Path
 
 import pytest
+
 import cli
 from cache import CacheStore
 from invalidators import NaiveInvalidator, RobustInvalidator
@@ -230,4 +230,28 @@ def test_pre_commit_hooks_yaml_manifest():
     assert "stalebyte check ." in hook["entry"]
     assert hook.get("language") == "python"
     assert hook.get("pass_filenames") is False
+
+
+def test_demo_reset_command(tmp_path):
+    import demo
+    cache_dir = tmp_path / "test_cache"
+    cache_dir.mkdir()
+    (cache_dir / "artifact.json").write_text("{}", encoding="utf-8")
+    (cache_dir / ".gitkeep").write_text("", encoding="utf-8")
+    uploads_dir = cache_dir / "uploads"
+    uploads_dir.mkdir()
+    (uploads_dir / "upload_artifact.json").write_text("{}", encoding="utf-8")
+
+    code = demo.reset_demo_cache(cache_dir_path=cache_dir)
+    assert code == 0
+    assert not (cache_dir / "artifact.json").exists()
+    assert not (uploads_dir / "upload_artifact.json").exists()
+    assert (cache_dir / ".gitkeep").exists()
+
+
+def test_demo_main_reset(monkeypatch):
+    import demo
+    monkeypatch.setattr(demo, "reset_demo_cache", lambda *args, **kwargs: 0)
+    code = demo.main(["--reset"])
+    assert code == 0
 

@@ -9,9 +9,9 @@ while NaiveInvalidator exhibits a non-zero, measurable silent failure rate.
 from __future__ import annotations
 
 import json
+
 import cli
 import fuzz
-import pytest
 
 
 def test_robust_failure_rate_is_strictly_zero_percent():

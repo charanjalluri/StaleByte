@@ -14,13 +14,25 @@ import argparse
 import json
 import random
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any
+
+# Ensure UTF-8 output encoding across platforms (e.g. Windows consoles defaulting to cp1252)
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from cache import CacheEntry
 from clock import VirtualClock
 from invalidators import NaiveInvalidator, RobustInvalidator
-from source import SourceFile, V1_CONTENT, V2_CONTENT
+from source import V1_CONTENT, V2_CONTENT, SourceFile
 
 REALISTIC_RESOLUTIONS: tuple[float, ...] = (0.5, 1.0, 2.0)
 DEFAULT_TRIALS: int = 10_000
@@ -147,7 +159,9 @@ def run_fuzz_suite(trials: int = DEFAULT_TRIALS, seed: int | None = None) -> Fuz
     """
     Run N randomized fuzzing trials and compute comprehensive statistics.
     """
-    rng = random.Random(seed)
+    if not isinstance(trials, int) or isinstance(trials, bool) or trials <= 0:
+        raise ValueError(f"'trials' must be a positive integer, got {trials!r}")
+    rng = random.Random(seed)  # nosec: B311
 
     naive_correct = 0
     naive_failures = 0
@@ -178,7 +192,8 @@ def run_fuzz_suite(trials: int = DEFAULT_TRIALS, seed: int | None = None) -> Fuz
         f"Naive invalidator fails silently in {naive_fail_rate:.1f}% of randomized edits "
         f"landing within boundary windows ({causes['resolution_collision']} collisions, "
         f"{causes['clock_skew']} clock skews). "
-        f"Robust SHA-256 validator achieves 100.0% accuracy (0.0% failure rate across {trials:,} trials)."
+        f"Robust SHA-256 validator achieves {100.0 - robust_fail_rate:.1f}% accuracy "
+        f"({robust_fail_rate:.1f}% failure rate across {trials:,} trials)."
     )
 
     return FuzzSummary(
@@ -201,18 +216,18 @@ def format_summary_report(summary: FuzzSummary) -> str:
         "  STALEBYTE STATISTICAL VALIDATION & FUZZING REPORT",
         "=" * 72,
         f"Total Randomized Trials : {summary.total_trials:,}",
-        f"Resolutions Tested      : 0.5s (sub-second), 1.0s (ext3/ext4), 2.0s (FAT32)",
-        f"Boundary Conditions     : Sub-second collision window + machine clock skew",
+        "Resolutions Tested      : 0.5s (sub-second), 1.0s (ext3/ext4), 2.0s (FAT32)",
+        "Boundary Conditions     : Sub-second collision window + machine clock skew",
         "-" * 72,
         "STRATEGY COMPARISON:",
-        f"1. Naive Invalidator (mtime <= t_cache):",
+        "1. Naive Invalidator (mtime <= t_cache):",
         f"   - Correct Invalidation : {summary.naive_correct:,} / {summary.total_trials:,}",
         f"   - Silent Failures (BUG): {summary.naive_silent_failures:,} / {summary.total_trials:,} "
         f"({summary.naive_failure_rate_pct:.2f}% failure rate)",
         f"     • Resolution Collision: {summary.naive_causes.get('resolution_collision', 0):,} trials",
         f"     • Clock Skew Offset   : {summary.naive_causes.get('clock_skew', 0):,} trials",
         "",
-        f"2. Robust Invalidator (mtime + SHA-256):",
+        "2. Robust Invalidator (mtime + SHA-256):",
         f"   - Correct Invalidation : {summary.robust_correct:,} / {summary.total_trials:,}",
         f"   - Silent Failures      : {summary.robust_failures:,} / {summary.total_trials:,} "
         f"({summary.robust_failure_rate_pct:.2f}% failure rate)",
@@ -250,7 +265,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    summary = run_fuzz_suite(trials=args.trials, seed=args.seed)
+    try:
+        summary = run_fuzz_suite(trials=args.trials, seed=args.seed)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
 
     if args.json:
         print(json.dumps(summary.to_dict(), indent=2))

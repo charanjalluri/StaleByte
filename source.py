@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from clock import VirtualClock
@@ -113,21 +112,34 @@ class SourceFile:
 
     @property
     def content_hash(self) -> str:
-        """Cryptographic SHA-256 hex digest of the raw source content."""
+        """Cryptographic SHA-256 hex digest of the in-memory content.
+
+        Pure read — never touches disk and never mutates ``.content``.
+        Call :meth:`refresh` or :meth:`snapshot` first when disk state
+        is needed in ``real_mode``.
+        """
         if self._explicit_hash is not None:
             return self._explicit_hash
-        # In real_mode, re-read live content if file exists
+        return compute_sha256(self.content)
+
+    def snapshot(self) -> tuple[str, float, int, str]:
+        """Atomically capture ``(content, mtime, size, content_hash)``.
+
+        In ``real_mode`` the disk content is re-read exactly once before
+        deriving mtime/size/hash, so the hash always corresponds to the
+        returned content (no A-mtime/B-hash Frankenstein reads). In
+        simulated mode the in-memory state is returned as-is.
+        """
         if self.real_mode and self.path.is_file():
             try:
-                live_content = self.path.read_text(encoding="utf-8")
-                self.content = live_content
+                self.content = self.path.read_text(encoding="utf-8")
             except OSError:
                 pass
-        return compute_sha256(self.content)
+        return (self.content, self.mtime, self.size, self.content_hash)
 
     def refresh(self) -> None:
         """Re-read content from disk if in real_mode."""
-        if self.path.is_file():
+        if self.real_mode and self.path.is_file():
             self.content = self.path.read_text(encoding="utf-8")
 
     def update_content(self, new_content: str) -> None:

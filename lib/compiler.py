@@ -34,6 +34,8 @@ def parse_source(content: str) -> dict[str, Any]:
             continue
         if "=" not in line:
             raise ValueError(f"Line {lineno}: missing '=' separator → {raw!r}")
+        if line.count("=") != 1:
+            raise ValueError(f"Line {lineno}: expected exactly one '=' separator → {raw!r}")
         key, _, value = line.partition("=")
         key = key.strip()
         value = value.strip()
@@ -127,15 +129,31 @@ def execute_artifact(artifact: dict[str, Any], input_value: int) -> int:
     PUSH <n>     – push integer n onto the stack
     MUL          – pop two values, push their product
     RETURN       – pop top of stack and return it
+
+    Raises RuntimeError for any malformed artifact (including entries loaded
+    from a corrupt or tampered cache) so callers can invalidate and rebuild
+    instead of surfacing raw KeyError/IndexError/ValueError.
     """
+    if not isinstance(artifact, dict):
+        raise RuntimeError(f"Malformed artifact: expected dict, got {type(artifact).__name__}")
+    bytecode = artifact.get("bytecode")
+    if not isinstance(bytecode, list) or not all(isinstance(i, str) for i in bytecode):
+        raise RuntimeError("Malformed artifact: 'bytecode' must be a list of strings")
     stack: list[int] = []
-    for instruction in artifact["bytecode"]:
+    for instruction in bytecode:
         parts = instruction.split()
+        if not parts:
+            raise RuntimeError("Malformed artifact: empty bytecode instruction")
         op = parts[0]
         if op == "LOAD_INPUT":
             stack.append(input_value)
         elif op == "PUSH":
-            stack.append(int(parts[1]))
+            if len(parts) != 2:
+                raise RuntimeError(f"Malformed PUSH instruction: {instruction!r} (expected 'PUSH <int>')")
+            try:
+                stack.append(int(parts[1]))
+            except ValueError:
+                raise RuntimeError(f"Malformed PUSH operand: {instruction!r} (not an integer)") from None
         elif op == "MUL":
             if len(stack) < 2:
                 raise RuntimeError("MUL requires two stack values")

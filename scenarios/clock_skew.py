@@ -30,22 +30,24 @@ def run() -> None:
     print(f"    Simulated source mtime = {data['t_source_skewed']}  (clock skew!)")
 
     # Naive checker
-    print(f"\n[2] Naive checker:")
+    print("\n[2] Naive checker:")
     print(f"    is_stale = {data['naive_decision']['is_stale']}")
     print(f"    reason   = {data['naive_decision']['reason']}")
 
     # Smart checker
-    print(f"\n[3] Smart checker:")
+    print("\n[3] Smart checker:")
     print(f"    is_stale        = {data['smart_decision']['is_stale']}")
     print(f"    timestamp_match = {data['smart_decision']['timestamp_match']}")
     print(f"    hash_match      = {data['smart_decision']['hash_match']}")
     print(f"    reason          = {data['smart_decision']['reason']}")
 
-    print(f"\n[4] Execute(10) → {data['result']}")
-    assert data["result"] == 20
+    if data["result"] != 20:
+        raise AssertionError(f"Expected 20, got {data['result']}")
 
-    assert not data["naive_decision"]["is_stale"], "Naive should see cache as valid under skew"
-    assert not data["smart_decision"]["is_stale"], "Smart should confirm valid (hash unchanged)"
+    if data["naive_decision"]["is_stale"]:
+        raise AssertionError("Naive should see cache as valid under skew")
+    if data["smart_decision"]["is_stale"]:
+        raise AssertionError("Smart should confirm valid (hash unchanged)")
 
     print("\n✓ Clock skew scenario passed — no false invalidation.")
 

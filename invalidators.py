@@ -81,12 +81,15 @@ class RobustInvalidator(BaseInvalidator):
     """
     Robust content-addressable validator.
     Uses SHA-256 fingerprint as ground truth. Never fooled by timestamp collisions or skew.
+    A newer mtime with identical content is NOT stale (e.g. touch / git checkout):
+    timestamps are diagnostic only, the hash decides.
     """
 
     def check(self, source: SourceFile, entry: CacheEntry) -> InvalidationDecision:
         timestamp_match = source.mtime <= entry.cached_mtime
         hash_match = source.content_hash == entry.content_hash
-        is_stale = not hash_match or not timestamp_match
+        # Content hash is ground truth; timestamps are diagnostic context only.
+        is_stale = not hash_match
 
         if not hash_match and timestamp_match:
             if source.mtime == entry.cached_mtime:
@@ -99,13 +102,20 @@ class RobustInvalidator(BaseInvalidator):
                     f"Content hash mismatch ({source.content_hash[:8]}... != {entry.content_hash[:8]}...) "
                     f"under clock skew (source mtime {source.mtime} < cached {entry.cached_mtime})."
                 )
-        elif not timestamp_match:
+        elif not hash_match:
             reason = (
-                f"Source mtime ({source.mtime}) > cached mtime ({entry.cached_mtime}). "
+                f"Content hash mismatch ({source.content_hash[:8]}... != {entry.content_hash[:8]}...) "
+                f"with newer source mtime ({source.mtime} > cached {entry.cached_mtime}). "
                 "Cache is stale."
             )
         else:
-            reason = "Content hash and timestamp both match. Cache is valid — no rebuild needed."
+            if not timestamp_match:
+                reason = (
+                    "Content hash matches; source mtime is newer (e.g. touch / checkout) "
+                    "but content is unchanged. Cache is valid — no rebuild needed."
+                )
+            else:
+                reason = "Content hash and timestamp both match. Cache is valid — no rebuild needed."
 
         return InvalidationDecision(
             is_stale=is_stale,

@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue?style=flat-square&logo=python)
-![Tests](https://img.shields.io/badge/Tests-131%20passed-brightgreen?style=flat-square)
+![Tests](https://img.shields.io/badge/Tests-133%20passed-brightgreen?style=flat-square)
 ![Naive](https://img.shields.io/badge/Naive%20Failure%20Rate-63.9%25-red?style=flat-square)
 ![Robust](https://img.shields.io/badge/Robust%20Failure%20Rate-0.0%25-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)
@@ -16,66 +16,97 @@
 
 ---
 
-## The Problem: Silent Correctness Bugs in Build Caches
+## The Problem: Why Timestamp-Only Cache Validation Fails
 
-Build tools use filesystem modification timestamps (`mtime`) as a cheap proxy to decide whether to recompile source files. When `source.mtime <= t_cache`, the build system assumes nothing changed and reuses the cached artifact. **This assumption is wrong in ways that are silent, intermittent, and catastrophic.**
+Build tools use filesystem modification timestamps (`mtime`) as a cheap proxy to decide whether to recompile source files. When `source.mtime <= t_cache`, the build system assumes nothing changed and reuses the cached artifact. **This assumption is fundamentally flawed in ways that are silent, intermittent, and catastrophic.**
 
 ```
 Source edited: factor=3    Cached artifact: factor=2
 mtime = 1700000000.0       t_cache = 1700000000.0
-         |___ EQUAL __________| Naive says: CACHE HIT
+         |___ EQUAL __________| Naive says: CACHE HIT (VALID)
                                   Actual output: 20  (expected 30)
-                                  Error logged: none
+                                  Error logged: none (SILENT BUG)
 ```
 
-### The Two Failure Modes StaleByte Proves
+### The Core Failure Modes StaleByte Reproduces
 
 | Failure Mode | Mechanism | Real-World Occurrence |
 |---|---|---|
-| **Timestamp Resolution Collision** | Source edited within the filesystem's 1–2s resolution window; new and old file share the same `mtime` | GNU Make on FAT32/NFS, Python `.pyc` reuse, CI pipelines with fast build loops |
-| **Clock Skew** | Build machine and run machine clocks differ; source `mtime` appears older than `t_cache` even after editing | Distributed CI/CD, Docker builder nodes, NTP drift in k8s clusters |
+| **Timestamp Resolution Collision** | Source edited within the filesystem's 1–2s resolution window; new and old file share the exact same `mtime` | GNU Make on FAT32/ext4/NFS, Python `.pyc` reuse, rapid CI/CD build iterations |
+| **Clock Skew** | Build machine and run machine clocks differ; source `mtime` appears older than `t_cache` even after editing | Distributed CI/CD, Docker builder nodes, NTP drift in container clusters |
 
-> **Both failures are undetectable by the naive checker. Both are reliably detected by SHA-256.**
+> **Both failures are completely invisible to timestamp checkers. Both are deterministically caught by SHA-256 content fingerprinting.**
 
 ---
 
-## Live Demo
+## Demonstration: Running the Live Presentation Demo
+
+Run the end-to-end deterministic demonstration:
 
 ```bash
 python demo.py
 ```
 
+### Resetting Between Demonstrations
+
+To safely clear all demo cache artifacts between runs:
+
+```bash
+python demo.py --reset
 ```
-========================================================================
-  STALEBYTE — Compiled Cache Staleness Detection Demo
-========================================================================
 
-[SCENARIO 1: Sub-Second Timestamp Resolution Collision (1.0s Window)]
-  Source V1 (factor=2) compiled, cached at mtime=1700000000.0
-  Source edited to V2 (factor=3) +0.4s later — mtime still 1700000000.0
+> [!NOTE]
+> `python demo.py --reset` exclusively removes project-owned temporary cache files in `cache/*.json`. It strictly preserves `.gitkeep`, repository files, source code, and Git metadata.
 
-  [NAIVE INVALIDATOR]
-    Decision  : is_stale=False   <- CACHE HIT
-    Execution : Output = 20
-    Verdict   : FAIL — Silent runtime mismatch (expected 30)
+### The 12-Step Lifecycle Demonstrated in `demo.py`
 
-  [ROBUST INVALIDATOR]
-    Decision  : is_stale=True    <- CACHE MISS (hash mismatch detected)
-    Action    : Stale cache invalidated -> Recompiled from V2
-    Execution : Output = 30
-    Verdict   : PASS — Staleness detected and corrected
+| Step | Phase | Action / Event | Naive Invalidator | Smart Invalidator (Robust) |
+|:---:|---|---|---|---|
+| **1** | **Source V1** | Source written with `factor=2` | Baseline recorded | Baseline recorded |
+| **2** | **Compile V1** | DSL compiler produces bytecode VM artifact | `LOAD_INPUT -> PUSH 2 -> MUL -> RETURN` | Identical artifact |
+| **3** | **Cache Created** | Artifact persisted to cache with metadata | `t_cache = 1700000000.0` | `content_hash = 45e28b09...` |
+| **4** | **Source Mutated** | Source edited to V2 (`factor=3`) +0.4s later | Content modified | Content modified |
+| **5** | **Collision Active** | Coarse clock window leaves `mtime` unchanged | `source.mtime == t_cache` | `source.mtime == t_cache` |
+| **6** | **Validation** | Invalidator inspects cache status | **False HIT** (`mtime <= t_cache`) | **MISS** (`1055b92b... != 45e28b09...`) |
+| **7** | **Execution** | Runtime attempts artifact execution | **Reuses stale V1 artifact (output 20)** | Staleness halts execution |
+| **8** | **Detection** | Validator verifies content integrity | [Skipped / Blind] | SHA-256 mismatch detected |
+| **9** | **Invalidation** | Cache eviction triggered | [None] | Stale V1 artifact evicted |
+| **10** | **Recompilation**| Compiler invoked on current V2 source | [None] | Recompiles to `factor=3` bytecode |
+| **11** | **Execution** | Runtime executes rebuilt artifact | Stale execution already occurred | Executes fresh V2 bytecode |
+| **12** | **Correct Output**| Program produces final result | **❌ FAIL: 20 (Silent Mismatch)** | **✓ PASS: 30 (Correct V2 Output)** |
 
-[SCENARIO 2: Clock Skew]
-  Build clock: 1700000100.0 | Run clock: 1700000050.0 (50s behind)
-  Source edited to V2 — mtime appears OLDER than t_cache
+---
 
-  [NAIVE INVALIDATOR]  -> FAIL   Output = 20 (stale)
-  [ROBUST INVALIDATOR] -> PASS   Output = 30 (correct)
+## Naive Approach vs Smart Approach: Live Comparison
 
-========================================================================
-  EVALUATION SUMMARY: Naive Failures: 2/2 | Robust Passes: 2/2
-========================================================================
+During live execution, `demo.py` outputs a direct side-by-side comparison derived from actual runtime objects:
+
+```text
+## NAIVE RUNTIME
+  Timestamp : MATCH
+  Cache     : VALID
+  Artifact  : REUSED
+  Output    : V1 (output=20)
+  STATUS    : STALE ARTIFACT EXECUTED (SILENT FAILURE)
+
+## SMART RUNTIME
+  Timestamp : MATCH
+  SHA-256   : MISMATCH
+  Cache     : STALE
+  Action    : INVALIDATE + REBUILD
+  Output    : V2 (output=30)
+  STATUS    : CURRENT SOURCE EXECUTED (CORRECT)
 ```
+
+| Feature / Metric | NAIVE RUNTIME (Timestamp-Only) | SMART RUNTIME (SHA-256 Content-Addressed) |
+|---|---|---|
+| **Validation Metric** | `source.mtime <= t_cache` | `source.content_hash == cached.content_hash` |
+| **Timestamp Check** | MATCH (`mtime` identical) | MATCH (collision window acknowledged) |
+| **SHA-256 Inspection** | None (blind to content changes) | MISMATCH (`1055b92b... != 45e28b09...`) |
+| **Cache Decision** | VALID (False Cache Hit) | STALE (Cache Miss) |
+| **Runtime Action** | Reuses stale compiled artifact | Evicts stale artifact & triggers recompilation |
+| **Execution Output** | `20` (Silent behavior mismatch) | `30` (Correct V2 result) |
+| **Fault Resilience** | Vulnerable to collisions & clock skew | 100% Deterministic Guarantee |
 
 ---
 
@@ -258,20 +289,42 @@ pre-commit run stalebyte-check --all-files
 
 ---
 
-## Test Suite
+## Security Model: Sandboxed Execution Without Arbitrary Code Execution
+
+StaleByte is designed with strict security isolation to prevent arbitrary code execution vulnerabilities:
+
+* **Zero `eval()` / Zero `exec()`**: Source files are never evaluated dynamically as Python scripts.
+* **Controlled Domain-Specific Language (DSL)**: Source files must conform strictly to declarative `operation=multiply\nfactor=<int>` syntax. Any unknown keys, syntax deviations, or multiple `=` symbols are rejected at compile time with descriptive errors.
+* **Sandboxed Bytecode Interpreter**: The compiler generates an abstract stack-based bytecode representation (`LOAD_INPUT`, `PUSH <val>`, `MUL`, `RETURN`) evaluated by a pure in-memory stack VM.
+* **Strict Parameter Bounds**: Factors must be strictly positive integers (`factor > 0`). Non-integers, negative numbers, or missing keys raise explicit validation errors before execution.
+* **Subprocess & Shell Prevention**: No shell execution (`shell=True`), arbitrary subprocesses, or dynamic C-extension loading exist anywhere in the core pipeline.
+* **Cache Safety & Path Traversal Defense**: `CacheStore` uses atomic file writes (writing to `.tmp` files followed by `os.replace`), sanitizes path keys, rejects system directories (`/etc`, `/bin`, `C:\Windows`), and enforces isolated cache roots.
+
+---
+
+## Test Suite & Commands for Judges
+
+Run tests via the standard test runner:
 
 ```bash
+# 1. Standard presentation-friendly summary (133 tests, ~0.3s runtime)
+python -m pytest tests/ -q
+
+# 2. Focused PDR verification suite (core staleness, windows, checkers, and real-disk utime)
+python -m pytest tests/test_runtime_end_to_end.py tests/test_timestamp_window.py tests/test_smart_checker.py tests/test_invalidators.py tests/test_cli_and_real_fs.py -q
+
+# 3. Verbose test execution
 python -m pytest tests/ -v
 ```
 
-**131 tests, 0 failures, 0 warnings.**
+**133 tests, 0 failures, 0 warnings.** Regenerate exact counts with `pytest --collect-only -q`.
 
 | Test Category | Tests | What Is Proven |
 |---|---|---|
 | AI Service | 8 | Streaming SSE, error handling, key lookup, summary fallback |
 | Cache Manager | 8 | Save/load integrity, invalidation, malformed input |
 | Cache Store | 3 | Full CacheStore lifecycle, corrupt file warning, thread concurrency |
-| CLI and Real Filesystem | 11 | Real `os.stat()` mtimes, `os.utime()` collision, recursive scan, pre-commit |
+| CLI and Real Filesystem | 13 | Real `os.stat()` mtimes, `os.utime()` collision, recursive scan, pre-commit, demo reset |
 | Clock Skew | 4 | Naive vs Robust divergence under skewed mtime |
 | Compiler & Bytecode VM | 14 | DSL parsing, factor validation, bytecode stack interpreter |
 | Statistical Fuzzing | 4 | 2,000-trial failure rates, JSON output, CLI integration |
@@ -333,7 +386,7 @@ StaleByte works out of the box with zero external configuration. For optional AI
 |---|---|
 | Naive invalidator silent failure rate (10,000 trials) | **63.9%** |
 | Robust invalidator failure rate | **0.0%** |
-| Automated test count | **131 passed** |
+| Automated test count | **130+ passed** |
 | Real-disk timestamp collision reproduced via `os.utime()` | **Yes** |
 | AI diagnostic explanation | **Meta Muse Spark 1.3** |
 | Web API endpoints | **8** |
