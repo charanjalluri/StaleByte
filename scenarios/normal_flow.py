@@ -26,7 +26,8 @@ def run() -> None:
     print(f"\n[3] Cache metadata: {data['metadata']}")
     print(f"\n[4] Execute(10) → {data['result']}")
 
-    assert data["result"] == 20, f"Expected 20, got {data['result']}"
+    if data["result"] != 20:
+        raise AssertionError(f"Expected 20, got {data['result']}")
     print("\n✓ Normal flow passed.")
 
 

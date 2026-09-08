@@ -19,12 +19,12 @@ from typing import Any
 # Ensure root directory is importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-from cache import CacheStore, InMemoryCacheStore
+from cache import InMemoryCacheStore
 from clock import VirtualClock
 from invalidators import NaiveInvalidator, RobustInvalidator
 from lib import compiler
 from runtime import Runtime
-from source import SourceFile, V1_CONTENT, V2_CONTENT
+from source import V1_CONTENT, V2_CONTENT, SourceFile
 
 
 def _separator(char: str = "=", width: int = 72) -> None:
@@ -121,7 +121,7 @@ def run_scenario_resolution_collision(runtime: Runtime) -> dict[str, Any]:
     # STEP 6 — NAIVE VALIDATION
     naive_res = runtime.execute(source, NaiveInvalidator(), input_value=10)
     print("\n  STEP 6 — NAIVE VALIDATION")
-    print(f"    Algorithm        : NaiveInvalidator (rule: source.mtime <= cached.mtime)")
+    print("    Algorithm        : NaiveInvalidator (rule: source.mtime <= cached.mtime)")
     print(f"    Decision         : is_stale={naive_res.decision.is_stale} (Cache HIT — Falsely deemed fresh)")
     print(f"    Reason           : {naive_res.decision.reason}")
 
@@ -129,7 +129,7 @@ def run_scenario_resolution_collision(runtime: Runtime) -> dict[str, Any]:
     print("\n  STEP 7 — STALE ARTIFACT EXECUTED")
     print(f"    Artifact Reused  : factor={naive_res.artifact['factor']} (stale V1 bytecode)")
     print(f"    Execution Result : input=10 -> output={naive_res.output} (expected 30 for V2)")
-    print(f"    Verdict          : ❌ FAIL (SILENT RUNTIME MISMATCH BUG — expected 30, got 20)")
+    print("    Verdict          : ❌ FAIL (SILENT RUNTIME MISMATCH BUG — expected 30, got 20)")
 
     # STEP 8 — SMART SHA-256 VALIDATION
     # Restore exact collision state for fair smart verification
@@ -141,7 +141,7 @@ def run_scenario_resolution_collision(runtime: Runtime) -> dict[str, Any]:
 
     smart_decision, _ = runtime.check_staleness(source, RobustInvalidator())
     print("\n  STEP 8 — SMART SHA-256 VALIDATION")
-    print(f"    Algorithm        : RobustInvalidator (SHA-256 Content Fingerprint)")
+    print("    Algorithm        : RobustInvalidator (SHA-256 Content Fingerprint)")
     print(f"    Source Hash      : {source.content_hash}")
     print(f"    Cached Hash      : {cached_v1.content_hash}")
     print(f"    Decision         : is_stale={smart_decision.is_stale} (Cache MISS — Staleness Detected)")
@@ -149,8 +149,8 @@ def run_scenario_resolution_collision(runtime: Runtime) -> dict[str, Any]:
 
     # STEP 9 — CACHE INVALIDATED
     print("\n  STEP 9 — CACHE INVALIDATED")
-    print(f"    Action           : Stale V1 artifact targeted for eviction upon rebuild")
-    print(f"    Reason           : Content hash mismatch overrides timestamp equality")
+    print("    Action           : Stale V1 artifact targeted for eviction upon rebuild")
+    print("    Reason           : Content hash mismatch overrides timestamp equality")
 
     # STEP 10 — V2 RECOMPILED
     v2_artifact = compiler.compile_source(source.content)
@@ -167,7 +167,7 @@ def run_scenario_resolution_collision(runtime: Runtime) -> dict[str, Any]:
     # STEP 12 — CORRECT V2 RESULT
     print("\n  STEP 12 — CORRECT V2 RESULT")
     print(f"    Execution Result : input=10 -> output={robust_res.output}")
-    print(f"    Verdict          : ✓ PASS (STALENESS DETECTED & CORRECTED — output 30)")
+    print("    Verdict          : ✓ PASS (STALENESS DETECTED & CORRECTED — output 30)")
 
     return {
         "naive_res": naive_res,
@@ -190,7 +190,8 @@ def run_scenario_clock_skew(runtime: Runtime) -> dict[str, Any]:
     runtime.cache_store.invalidate()
     runtime.execute(source_v1, RobustInvalidator(), input_value=10)
     cached_entry = runtime.cache_store.load(source_v1.path)
-    assert cached_entry is not None, "Cache entry must exist after build"
+    if cached_entry is None:
+        raise RuntimeError("Cache entry must exist after build")
     print(f"  2. Source V1 cached at build timestamp t_cache={cached_entry.cached_mtime:.1f}s.")
 
     # Run machine clock is 50 seconds behind
@@ -201,16 +202,16 @@ def run_scenario_clock_skew(runtime: Runtime) -> dict[str, Any]:
     print("\n  [CLOCK SKEW PARAMETERS]")
     print(f"    CACHE TIMESTAMP        : {cached_entry.cached_mtime:.1f}s (Build machine ahead)")
     print(f"    SOURCE TIMESTAMP       : {source_v2.mtime:.1f}s (Run machine behind)")
-    print(f"    TIMESTAMP RELATIONSHIP : source.mtime < t_cache (skew delta: -50.0s)")
+    print("    TIMESTAMP RELATIONSHIP : source.mtime < t_cache (skew delta: -50.0s)")
     print(f"    SHA-256 RESULT         : MISMATCH (source {source_v2.content_hash[:16]}... != cache {cached_entry.content_hash[:16]}...)")
 
     # Step 3: Run Naive Invalidator under skew
     naive_res = runtime.execute(source_v2, NaiveInvalidator(), input_value=10)
     print("\n  [NAIVE RUNTIME DECISION UNDER SKEW]")
     print(f"    VALIDATION RESULT      : is_stale={naive_res.decision.is_stale} (Cache HIT — Falsely accepted)")
-    print(f"    RUNTIME DECISION       : REUSE STALE ARTIFACT (believes source is older than cache)")
+    print("    RUNTIME DECISION       : REUSE STALE ARTIFACT (believes source is older than cache)")
     print(f"    Execution Output       : {naive_res.output} (factor={naive_res.artifact['factor']})")
-    print(f"    Verdict                : ❌ FAIL (SILENT RUNTIME MISMATCH BUG — expected 30, got 20)")
+    print("    Verdict                : ❌ FAIL (SILENT RUNTIME MISMATCH BUG — expected 30, got 20)")
 
     # Step 4: Run Robust Invalidator under skew
     runtime.cache_store.invalidate()
@@ -218,9 +219,9 @@ def run_scenario_clock_skew(runtime: Runtime) -> dict[str, Any]:
     robust_res = runtime.execute(source_v2, RobustInvalidator(), input_value=10)
     print("\n  [ROBUST RUNTIME DECISION UNDER SKEW]")
     print(f"    VALIDATION RESULT      : is_stale={robust_res.decision.is_stale} (Cache MISS — Detected via SHA-256)")
-    print(f"    RUNTIME DECISION       : INVALIDATE + REBUILD CURRENT SOURCE")
+    print("    RUNTIME DECISION       : INVALIDATE + REBUILD CURRENT SOURCE")
     print(f"    Execution Output       : {robust_res.output} (factor={robust_res.artifact['factor']})")
-    print(f"    Verdict                : ✓ PASS (STALENESS DETECTED & CORRECTED — output 30)")
+    print("    Verdict                : ✓ PASS (STALENESS DETECTED & CORRECTED — output 30)")
 
     return {
         "naive_res": naive_res,

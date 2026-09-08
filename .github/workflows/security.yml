@@ -40,7 +40,7 @@ jobs:
 
       - name: Run pip-audit dependency vulnerability scan
         run: |
-          pip-audit --desc
+          pip-audit . --desc
 
       - name: Verify repository secret isolation
         run: |

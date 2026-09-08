@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cache import CacheEntry
 from invalidators import RobustInvalidator
-from lib.source_manager import compute_hash, V1_CONTENT, V2_CONTENT
+from lib.source_manager import V1_CONTENT, V2_CONTENT, compute_hash
 from source import SourceFile
 
 FIXED_TS = 1_700_000_000.0

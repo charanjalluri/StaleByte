@@ -10,11 +10,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
+
 from cache import CacheStore
 from clock import VirtualClock
 from invalidators import NaiveInvalidator, RobustInvalidator
 from runtime import Runtime
-from source import SourceFile, V1_CONTENT, V2_CONTENT
+from source import V1_CONTENT, V2_CONTENT, SourceFile
 
 
 @pytest.fixture()

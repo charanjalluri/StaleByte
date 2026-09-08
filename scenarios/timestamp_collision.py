@@ -35,21 +35,22 @@ def run() -> None:
 
     # Naive
     naive = data["naive_execution"]
-    print(f"\n[3] Naive checker decision:")
+    print("\n[3] Naive checker decision:")
     print(f"    is_stale        = {naive['is_stale']}")
     print(f"    reason          = {naive['reason']}")
-    print(f"    Naive result    = {naive['result']}  (expected 20 — stale V1)")
-    assert naive["result"] == 20, f"Naive should return 20, got {naive['result']}"
+    if naive["result"] != 20:
+        raise AssertionError(f"Naive should return 20, got {naive['result']}")
 
     # Smart
     smart = data["smart_execution"]
-    print(f"\n[4] Smart checker decision:")
+    print("\n[4] Smart checker decision:")
     print(f"    is_stale        = {smart['is_stale']}")
     print(f"    timestamp_match = {smart['timestamp_match']}")
     print(f"    hash_match      = {smart['hash_match']}")
     print(f"    reason          = {smart['reason']}")
     print(f"    Smart result    = {smart['result']}  (expected 30 — rebuilt V2)")
-    assert smart["result"] == 30, f"Smart should return 30, got {smart['result']}"
+    if smart["result"] != 30:
+        raise AssertionError(f"Smart should return 30, got {smart['result']}")
 
     # Summary
     print("\n" + "=" * 60)

@@ -10,7 +10,6 @@ import json
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
 
-import pytest
 from services import ai_service
 
 

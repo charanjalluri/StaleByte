@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
+
 from lib import cache_manager, compiler, source_manager
 from runtime import run_naive, run_smart
 

@@ -275,7 +275,7 @@ def run_clock_skew_scenario(
     artifact = compiler.compile_source(content)
     src_hash = source_manager.compute_hash(content)
 
-    meta = cache_manager.save_cache(
+    cache_manager.save_cache(
         artifact=artifact,
         source_content=content,
         source_hash=src_hash,

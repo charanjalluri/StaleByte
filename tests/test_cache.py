@@ -5,15 +5,14 @@ Tests proving that cache save/load round-trips preserve all data.
 Uses a temporary directory so tests are isolated and leave no side effects.
 """
 
-import json
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from lib import cache_manager, compiler, source_manager
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

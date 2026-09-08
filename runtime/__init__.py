@@ -9,9 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from cache import CacheEntry, CacheStore
+from cache import CacheStore
 from invalidators import NaiveInvalidator, RobustInvalidator
-from lib import cache_manager, compiler, source_manager
+from lib import cache_manager, source_manager
 from runtime.engine import ExecutionResult, Runtime
 from source import SourceFile
 

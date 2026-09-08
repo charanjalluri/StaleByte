@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from clock import VirtualClock
-from source import SourceFile, V1_CONTENT, V2_CONTENT, compute_sha256
+from source import V1_CONTENT, V2_CONTENT, SourceFile, compute_sha256
 
 
 def test_source_file_fingerprinting():

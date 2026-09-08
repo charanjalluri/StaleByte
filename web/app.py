@@ -121,7 +121,7 @@ class StaleByteRequestHandler(BaseHTTPRequestHandler):
                             break
                         remaining -= len(chunk)
                 except Exception:
-                    pass
+                    pass  # nosec: B110
                 self._send_error(HTTPStatus.BAD_REQUEST, "File exceeds maximum allowable size of 1MB.")
                 return
 

@@ -5,9 +5,9 @@ Service layer orchestrating simulations and workflows across StaleByte core comp
 """
 
 from services.simulation_service import (
-    run_normal_flow,
-    run_collision_scenario,
     run_clock_skew_scenario,
+    run_collision_scenario,
+    run_normal_flow,
 )
 
 __all__ = [

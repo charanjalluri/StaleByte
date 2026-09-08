@@ -14,13 +14,13 @@ import argparse
 import json
 import random
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any
 
 from cache import CacheEntry
 from clock import VirtualClock
 from invalidators import NaiveInvalidator, RobustInvalidator
-from source import SourceFile, V1_CONTENT, V2_CONTENT
+from source import V1_CONTENT, V2_CONTENT, SourceFile
 
 REALISTIC_RESOLUTIONS: tuple[float, ...] = (0.5, 1.0, 2.0)
 DEFAULT_TRIALS: int = 10_000
@@ -149,7 +149,7 @@ def run_fuzz_suite(trials: int = DEFAULT_TRIALS, seed: int | None = None) -> Fuz
     """
     if not isinstance(trials, int) or isinstance(trials, bool) or trials <= 0:
         raise ValueError(f"'trials' must be a positive integer, got {trials!r}")
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # nosec: B311
 
     naive_correct = 0
     naive_failures = 0
@@ -204,18 +204,18 @@ def format_summary_report(summary: FuzzSummary) -> str:
         "  STALEBYTE STATISTICAL VALIDATION & FUZZING REPORT",
         "=" * 72,
         f"Total Randomized Trials : {summary.total_trials:,}",
-        f"Resolutions Tested      : 0.5s (sub-second), 1.0s (ext3/ext4), 2.0s (FAT32)",
-        f"Boundary Conditions     : Sub-second collision window + machine clock skew",
+        "Resolutions Tested      : 0.5s (sub-second), 1.0s (ext3/ext4), 2.0s (FAT32)",
+        "Boundary Conditions     : Sub-second collision window + machine clock skew",
         "-" * 72,
         "STRATEGY COMPARISON:",
-        f"1. Naive Invalidator (mtime <= t_cache):",
+        "1. Naive Invalidator (mtime <= t_cache):",
         f"   - Correct Invalidation : {summary.naive_correct:,} / {summary.total_trials:,}",
         f"   - Silent Failures (BUG): {summary.naive_silent_failures:,} / {summary.total_trials:,} "
         f"({summary.naive_failure_rate_pct:.2f}% failure rate)",
         f"     • Resolution Collision: {summary.naive_causes.get('resolution_collision', 0):,} trials",
         f"     • Clock Skew Offset   : {summary.naive_causes.get('clock_skew', 0):,} trials",
         "",
-        f"2. Robust Invalidator (mtime + SHA-256):",
+        "2. Robust Invalidator (mtime + SHA-256):",
         f"   - Correct Invalidation : {summary.robust_correct:,} / {summary.total_trials:,}",
         f"   - Silent Failures      : {summary.robust_failures:,} / {summary.total_trials:,} "
         f"({summary.robust_failure_rate_pct:.2f}% failure rate)",

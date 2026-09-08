@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from cache import CacheEntry, CacheStore, InMemoryCacheStore
 from clock import VirtualClock
-from invalidators import BaseInvalidator as Invalidator
 from invalidators import BaseInvalidator, InvalidationDecision, NaiveInvalidator, RobustInvalidator
+from invalidators import BaseInvalidator as Invalidator
 from runtime import ExecutionResult, Runtime
 from source import SourceFile
 
